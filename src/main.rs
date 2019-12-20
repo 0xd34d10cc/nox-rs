@@ -51,10 +51,62 @@ pub enum LogicOp {
 }
 
 pub type Int = i64;
+pub type Var = String;
+
+#[derive(Debug, Clone)]
+pub enum Statement {
+    Assign(Var, Expr),
+    Read(Var),
+    Write(Var),
+    Seq(Box<Statement>, Box<Statement>)
+}
+
+// Execution context: model for memory, input & output streams
+trait ExecutionContext {
+    fn get(&self, name: &str) -> Option<Int>;
+    fn set(&mut self, name: &str, value: Int);
+
+    fn read(&mut self) -> Option<Int>;
+    fn write(&mut self, value: Int);
+}
+
+// parse statement
+fn statement(input: &[u8]) -> IResult<&[u8], Statement> {
+    todo!()
+}
+
+// execute program (statement language)
+fn exec<C>(program: Statement, context: &mut C) where C: ExecutionContext {
+    todo!()
+}
+
+// Stack machine instruction
+#[derive(Debug, Clone)]
+pub enum Instruction {
+    Op(Op),
+    LogicOp(LogicOp),
+    Const(Int),
+    Read,
+    Write,
+    Load(Var),
+    Store(Var)
+}
+
+type Program = Vec<Instruction>;
+
+// convert from statement ast to list of stack machine instructions
+fn compile(statements: Statement) -> Program {
+    todo!()
+}
+
+// run stack machine program within given execution context
+fn run<C>(program: Program, context: &mut C, stack: Vec<Int>) where C: ExecutionContext {
+    todo!()
+}
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Var(String),
+    Var(Var),
     Const(Int),
     Op(Op, Box<Expr>, Box<Expr>),
     LogicOp(LogicOp, Box<Expr>, Box<Expr>),
@@ -69,7 +121,7 @@ fn variable(input: &[u8]) -> IResult<&[u8], Expr> {
     let (input, second) = take_while(|c| (c as char).is_alphanumeric())(input)?;
     let first = std::str::from_utf8(first).unwrap();
     let second = std::str::from_utf8(second).unwrap();
-    let name = String::from(first) + second;
+    let name = Var::from(first) + second;
 
     Ok((input, Expr::Var(name)))
 }
@@ -177,12 +229,12 @@ pub fn expr(input: &[u8]) -> IResult<&[u8], Expr> {
     logic(input)
 }
 
-pub type Context = HashMap<String, Int>;
+pub type Env = HashMap<Var, Int>;
 
-pub fn eval(expr: Expr, context: &Context) -> Result<Int, Box<dyn std::error::Error>> {
+pub fn eval(expr: Expr, env: &Env) -> Result<Int, Box<dyn std::error::Error>> {
     match expr {
         Expr::Var(name) => {
-            let val = context
+            let val = env
                 .get(&name)
                 .copied()
                 .ok_or_else(|| format!("Variable {} is not defined", name))?;
@@ -190,8 +242,8 @@ pub fn eval(expr: Expr, context: &Context) -> Result<Int, Box<dyn std::error::Er
         }
         Expr::Const(v) => Ok(v),
         Expr::Op(op, lhs, rhs) => {
-            let left = eval(*lhs, context)?;
-            let right = eval(*rhs, context)?;
+            let left = eval(*lhs, env)?;
+            let right = eval(*rhs, env)?;
 
             let result = match op {
                 Op::Add => left.wrapping_add(right),
@@ -216,8 +268,8 @@ pub fn eval(expr: Expr, context: &Context) -> Result<Int, Box<dyn std::error::Er
             Ok(result)
         }
         Expr::LogicOp(op, lhs, rhs) => {
-            let left = eval(*lhs, context)?;
-            let right = eval(*rhs, context)?;
+            let left = eval(*lhs, env)?;
+            let right = eval(*rhs, env)?;
 
             let result = match op {
                 LogicOp::Less => left < right,
@@ -236,7 +288,7 @@ pub fn eval(expr: Expr, context: &Context) -> Result<Int, Box<dyn std::error::Er
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let context = Context::new();
+    let env = Env::new();
     loop {
         let mut line = String::new();
         std::io::stdin().read_line(&mut line)?;
@@ -244,7 +296,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{:?}", e);
 
         if let Ok((_, expr)) = e {
-            println!("{:?}", eval(expr, &context));
+            println!("{:?}", eval(expr, &env));
         }
     }
 }

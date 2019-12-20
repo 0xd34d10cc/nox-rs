@@ -2,7 +2,7 @@
 
 type Int = crate::Int;
 type Expr = crate::Expr;
-type Context = crate::Context;
+type Context = crate::Env;
 
 fn parse(input: &str) -> Expr {
     let (rest, node) = crate::expr(input.as_bytes()).unwrap();
