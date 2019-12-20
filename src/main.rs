@@ -50,53 +50,48 @@ pub enum LogicOp {
     Or,
 }
 
-// TODO: emulate OCaml Int type (which is 63-bit wide (?))
 pub type Int = i64;
 
 #[derive(Debug, Clone)]
-pub enum Node {
+pub enum Expr {
     Var(String),
     Const(Int),
-    Op(Op, Box<Node>, Box<Node>),
-    LogicOp(LogicOp, Box<Node>, Box<Node>),
+    Op(Op, Box<Expr>, Box<Expr>),
+    LogicOp(LogicOp, Box<Expr>, Box<Expr>),
 }
 
 fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
     take_while(|c| (c as char).is_whitespace())(input)
 }
 
-fn variable(input: &[u8]) -> IResult<&[u8], Node> {
+fn variable(input: &[u8]) -> IResult<&[u8], Expr> {
     let (input, first) = take_while1(|c| (c as char).is_alphabetic())(input)?;
     let (input, second) = take_while(|c| (c as char).is_alphanumeric())(input)?;
     let first = std::str::from_utf8(first).unwrap();
     let second = std::str::from_utf8(second).unwrap();
     let name = String::from(first) + second;
 
-    Ok((input, Node::Var(name)))
+    Ok((input, Expr::Var(name)))
 }
 
-fn integer(input: &[u8]) -> IResult<&[u8], Node> {
-    map(
-        map_res(take_while1(|c| (c as char).is_numeric()), |number| {
-            std::str::from_utf8(number).unwrap().parse::<Int>()
-        }),
-        |n| Node::Const(n),
-    )(input)
+fn integer(input: &[u8]) -> IResult<&[u8], Expr> {
+    let (input, n) = map_res(take_while1(|c| (c as char).is_numeric()), |number| {
+        std::str::from_utf8(number).unwrap().parse::<Int>()
+    })(input)?;
+
+    Ok((input, Expr::Const(n)))
 }
 
-fn factor(input: &[u8]) -> IResult<&[u8], Node> {
+fn factor(input: &[u8]) -> IResult<&[u8], Expr> {
     let (input, minus) = opt(tag(b"-"))(input)?;
     let (input, node) = alt((
         variable,
         integer,
-        map(
-            tuple((spaces, tag("("), spaces, expr, spaces, tag(")"), spaces)),
-            |(_, _, _, e, _, _, _)| e,
-        ),
+        map(tuple((tag("("), expr, tag(")"))), |(_, e, _)| e),
     ))(input)?;
 
     let node = if minus.is_some() {
-        Node::Op(Op::Sub, Box::new(Node::Const(0)), Box::new(node))
+        Expr::Op(Op::Sub, Box::new(Expr::Const(0)), Box::new(node))
     } else {
         node
     };
@@ -113,13 +108,13 @@ fn mul_div_or_mod(input: &[u8]) -> IResult<&[u8], Op> {
     }
 }
 
-fn term(input: &[u8]) -> IResult<&[u8], Node> {
+fn term(input: &[u8]) -> IResult<&[u8], Expr> {
     let (input, lhs) = factor(input)?;
     let (input, _) = spaces(input)?;
     fold_many0(
         tuple((mul_div_or_mod, spaces, factor, spaces)),
         lhs,
-        |lhs, (op, _, rhs, _)| Node::Op(op, Box::new(lhs), Box::new(rhs)),
+        |lhs, (op, _, rhs, _)| Expr::Op(op, Box::new(lhs), Box::new(rhs)),
     )(input)
 }
 
@@ -131,18 +126,18 @@ fn add_or_sub(input: &[u8]) -> IResult<&[u8], Op> {
     }
 }
 
-fn arithmetic(input: &[u8]) -> IResult<&[u8], Node> {
+fn arithmetic(input: &[u8]) -> IResult<&[u8], Expr> {
     let (input, lhs) = term(input)?;
     let (input, _) = spaces(input)?;
     fold_many0(
         tuple((add_or_sub, spaces, term, spaces)),
         lhs,
-        |lhs, (op, _, rhs, _)| Node::Op(op, Box::new(lhs), Box::new(rhs)),
+        |lhs, (op, _, rhs, _)| Expr::Op(op, Box::new(lhs), Box::new(rhs)),
     )(input)
 }
 
 fn logic_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
-    match alt((
+    let (input, op) = alt((
         tag("<="),
         tag(">="),
         tag("=="),
@@ -151,47 +146,50 @@ fn logic_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
         tag("||"),
         tag("<"),
         tag(">"),
-    ))(input)?
-    {
-        (input, b"<") => Ok((input, LogicOp::Less)),
-        (input, b"<=") => Ok((input, LogicOp::LessOrEqual)),
-        (input, b">") => Ok((input, LogicOp::Greater)),
-        (input, b">=") => Ok((input, LogicOp::GreaterOrEqual)),
-        (input, b"==") => Ok((input, LogicOp::Eq)),
-        (input, b"!=") => Ok((input, LogicOp::NotEq)),
-        (input, b"&&") => Ok((input, LogicOp::And)),
-        (input, b"||") => Ok((input, LogicOp::Or)),
+    ))(input)?;
+
+    let op = match op {
+        b"<" => LogicOp::Less,
+        b"<=" => LogicOp::LessOrEqual,
+        b">" => LogicOp::Greater,
+        b">=" => LogicOp::GreaterOrEqual,
+        b"==" => LogicOp::Eq,
+        b"!=" => LogicOp::NotEq,
+        b"&&" => LogicOp::And,
+        b"||" => LogicOp::Or,
         _ => unreachable!(),
-    }
+    };
+
+    Ok((input, op))
 }
 
-fn logic(input: &[u8]) -> IResult<&[u8], Node> {
+fn logic(input: &[u8]) -> IResult<&[u8], Expr> {
     let (input, lhs) = arithmetic(input)?;
     let (input, _) = spaces(input)?;
     fold_many0(
         tuple((logic_op, spaces, arithmetic, spaces)),
         lhs,
-        |lhs, (op, _, rhs, _)| Node::LogicOp(op, Box::new(lhs), Box::new(rhs)),
+        |lhs, (op, _, rhs, _)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
     )(input)
 }
 
-pub fn expr(input: &[u8]) -> IResult<&[u8], Node> {
+pub fn expr(input: &[u8]) -> IResult<&[u8], Expr> {
     logic(input)
 }
 
 pub type Context = HashMap<String, Int>;
 
-pub fn eval(node: Node, context: &Context) -> Result<Int, Box<dyn std::error::Error>> {
-    match node {
-        Node::Var(name) => {
+pub fn eval(expr: Expr, context: &Context) -> Result<Int, Box<dyn std::error::Error>> {
+    match expr {
+        Expr::Var(name) => {
             let val = context
                 .get(&name)
-                .cloned()
+                .copied()
                 .ok_or_else(|| format!("Variable {} is not defined", name))?;
             Ok(val)
         }
-        Node::Const(v) => Ok(v),
-        Node::Op(op, lhs, rhs) => {
+        Expr::Const(v) => Ok(v),
+        Expr::Op(op, lhs, rhs) => {
             let left = eval(*lhs, context)?;
             let right = eval(*rhs, context)?;
 
@@ -217,7 +215,7 @@ pub fn eval(node: Node, context: &Context) -> Result<Int, Box<dyn std::error::Er
 
             Ok(result)
         }
-        Node::LogicOp(op, lhs, rhs) => {
+        Expr::LogicOp(op, lhs, rhs) => {
             let left = eval(*lhs, context)?;
             let right = eval(*rhs, context)?;
 
@@ -245,8 +243,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let e = expr(line.as_bytes());
         println!("{:?}", e);
 
-        if let Ok((_, node)) = e {
-            println!("{:?}", eval(node, &context));
+        if let Ok((_, expr)) = e {
+            println!("{:?}", eval(expr, &context));
         }
     }
 }
