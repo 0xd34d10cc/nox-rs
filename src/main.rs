@@ -1,20 +1,21 @@
 use std::collections::HashMap;
 
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_while1, take_while};
+use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::combinator::{map, map_res, opt};
 use nom::multi::fold_many0;
 use nom::sequence::tuple;
 use nom::IResult;
 
+#[cfg(test)]
 mod regression;
 
 // TODO: deal with precedence of logic operations
 
 // Expr ::= Logic
-// Logic ::= Arithm ( '<' Arithm
+// Logic ::= Arithm ( '<'  Arithm
 //                  | '<=' Arithm
-//                  | '>' Arithm
+//                  | '>'  Arithm
 //                  | '>=' Arithm
 //                  | '==' Arithm
 //                  | '!=' Arithm
@@ -23,19 +24,13 @@ mod regression;
 //
 // Arithm ::= Term ('+' Term | '-' Term)*
 // Term ::= Factor ('*' Factor | '/' Factor | '%' Factor)*
-// Factor ::= ['-'] (Var | Number | '(' Arithm ')')
+// Factor ::= ['-'] (Var | Number | '(' Expr ')')
 //
 // Number ::= Digit+
 // Var ::= Alpha (Alpha | Digit)*
 
-
 #[derive(Debug, Clone)]
-enum Value {
-    Int(i32),
-}
-
-#[derive(Debug, Clone)]
-enum Op {
+pub enum Op {
     Add,
     Sub,
     Mul,
@@ -44,7 +39,7 @@ enum Op {
 }
 
 #[derive(Debug, Clone)]
-enum LogicOp {
+pub enum LogicOp {
     Less,
     LessOrEqual,
     Greater,
@@ -55,12 +50,19 @@ enum LogicOp {
     Or,
 }
 
+// TODO: emulate OCaml Int type (which is 63-bit wide (?))
+pub type Int = i64;
+
 #[derive(Debug, Clone)]
-enum Node {
+pub enum Node {
     Var(String),
-    Const(Value),
+    Const(Int),
     Op(Op, Box<Node>, Box<Node>),
     LogicOp(LogicOp, Box<Node>, Box<Node>),
+}
+
+fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
+    take_while(|c| (c as char).is_whitespace())(input)
 }
 
 fn variable(input: &[u8]) -> IResult<&[u8], Node> {
@@ -76,9 +78,9 @@ fn variable(input: &[u8]) -> IResult<&[u8], Node> {
 fn integer(input: &[u8]) -> IResult<&[u8], Node> {
     map(
         map_res(take_while1(|c| (c as char).is_numeric()), |number| {
-            std::str::from_utf8(number).unwrap().parse::<i32>()
+            std::str::from_utf8(number).unwrap().parse::<Int>()
         }),
-        |n| Node::Const(Value::Int(n)),
+        |n| Node::Const(n),
     )(input)
 }
 
@@ -87,15 +89,14 @@ fn factor(input: &[u8]) -> IResult<&[u8], Node> {
     let (input, node) = alt((
         variable,
         integer,
-        map(tuple((tag("("), arithmetic, tag(")"))), |(_, e, _)| e),
+        map(
+            tuple((spaces, tag("("), spaces, expr, spaces, tag(")"), spaces)),
+            |(_, _, _, e, _, _, _)| e,
+        ),
     ))(input)?;
 
     let node = if minus.is_some() {
-        Node::Op(
-            Op::Sub,
-            Box::new(Node::Const(Value::Int(0))),
-            Box::new(node),
-        )
+        Node::Op(Op::Sub, Box::new(Node::Const(0)), Box::new(node))
     } else {
         node
     };
@@ -114,9 +115,12 @@ fn mul_div_or_mod(input: &[u8]) -> IResult<&[u8], Op> {
 
 fn term(input: &[u8]) -> IResult<&[u8], Node> {
     let (input, lhs) = factor(input)?;
-    fold_many0(tuple((mul_div_or_mod, factor)), lhs, |lhs, (op, rhs)| {
-        Node::Op(op, Box::new(lhs), Box::new(rhs))
-    })(input)
+    let (input, _) = spaces(input)?;
+    fold_many0(
+        tuple((mul_div_or_mod, spaces, factor, spaces)),
+        lhs,
+        |lhs, (op, _, rhs, _)| Node::Op(op, Box::new(lhs), Box::new(rhs)),
+    )(input)
 }
 
 fn add_or_sub(input: &[u8]) -> IResult<&[u8], Op> {
@@ -129,18 +133,29 @@ fn add_or_sub(input: &[u8]) -> IResult<&[u8], Op> {
 
 fn arithmetic(input: &[u8]) -> IResult<&[u8], Node> {
     let (input, lhs) = term(input)?;
-    fold_many0(tuple((add_or_sub, term)), lhs, |lhs, (op, rhs)| {
-        Node::Op(op, Box::new(lhs), Box::new(rhs))
-    })(input)
+    let (input, _) = spaces(input)?;
+    fold_many0(
+        tuple((add_or_sub, spaces, term, spaces)),
+        lhs,
+        |lhs, (op, _, rhs, _)| Node::Op(op, Box::new(lhs), Box::new(rhs)),
+    )(input)
 }
 
 fn logic_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
-    match alt((tag("<"), tag(">"), tag("<="), tag(">="),
-               tag("=="), tag("!="),
-               tag("&&"), tag("||")))(input)? {
+    match alt((
+        tag("<="),
+        tag(">="),
+        tag("=="),
+        tag("!="),
+        tag("&&"),
+        tag("||"),
+        tag("<"),
+        tag(">"),
+    ))(input)?
+    {
         (input, b"<") => Ok((input, LogicOp::Less)),
-        (input, b">") => Ok((input, LogicOp::Greater)),
         (input, b"<=") => Ok((input, LogicOp::LessOrEqual)),
+        (input, b">") => Ok((input, LogicOp::Greater)),
         (input, b">=") => Ok((input, LogicOp::GreaterOrEqual)),
         (input, b"==") => Ok((input, LogicOp::Eq)),
         (input, b"!=") => Ok((input, LogicOp::NotEq)),
@@ -152,41 +167,45 @@ fn logic_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
 
 fn logic(input: &[u8]) -> IResult<&[u8], Node> {
     let (input, lhs) = arithmetic(input)?;
-    fold_many0(tuple((logic_op, arithmetic)), lhs, |lhs, (op, rhs)| {
-        Node::LogicOp(op, Box::new(lhs), Box::new(rhs))
-    })(input)
+    let (input, _) = spaces(input)?;
+    fold_many0(
+        tuple((logic_op, spaces, arithmetic, spaces)),
+        lhs,
+        |lhs, (op, _, rhs, _)| Node::LogicOp(op, Box::new(lhs), Box::new(rhs)),
+    )(input)
 }
 
-fn expr(input: &[u8]) -> IResult<&[u8], Node> {
+pub fn expr(input: &[u8]) -> IResult<&[u8], Node> {
     logic(input)
 }
 
-type Context = HashMap<String, Value>;
+pub type Context = HashMap<String, Int>;
 
-fn eval(node: Node, context: &Context) -> Result<Value, Box<dyn std::error::Error>> {
+pub fn eval(node: Node, context: &Context) -> Result<Int, Box<dyn std::error::Error>> {
     match node {
         Node::Var(name) => {
-            let val = context.get(&name)
+            let val = context
+                .get(&name)
                 .cloned()
                 .ok_or_else(|| format!("Variable {} is not defined", name))?;
             Ok(val)
-        },
+        }
         Node::Const(v) => Ok(v),
         Node::Op(op, lhs, rhs) => {
-            let Value::Int(left) = eval(*lhs, context)?;
-            let Value::Int(right) = eval(*rhs, context)?;
+            let left = eval(*lhs, context)?;
+            let right = eval(*rhs, context)?;
 
             let result = match op {
-                Op::Add => left + right,
-                Op::Sub => left - right,
-                Op::Mul => left * right,
+                Op::Add => left.wrapping_add(right),
+                Op::Sub => left.wrapping_sub(right),
+                Op::Mul => left.wrapping_mul(right),
                 Op::Div => {
                     if right == 0 {
                         return Err("Attempt to divide by 0".into());
                     }
 
                     left / right
-                },
+                }
                 Op::Mod => {
                     if right == 0 {
                         return Err("Attempt to mod by 0".into());
@@ -196,11 +215,11 @@ fn eval(node: Node, context: &Context) -> Result<Value, Box<dyn std::error::Erro
                 }
             };
 
-            Ok(Value::Int(result))
+            Ok(result)
         }
         Node::LogicOp(op, lhs, rhs) => {
-            let Value::Int(left) = eval(*lhs, context)?;
-            let Value::Int(right) = eval(*rhs, context)?;
+            let left = eval(*lhs, context)?;
+            let right = eval(*rhs, context)?;
 
             let result = match op {
                 LogicOp::Less => left < right,
@@ -213,7 +232,7 @@ fn eval(node: Node, context: &Context) -> Result<Value, Box<dyn std::error::Erro
                 LogicOp::Or => left != 0 || right != 0,
             };
 
-            Ok(Value::Int(result as i32))
+            Ok(result as Int)
         }
     }
 }
