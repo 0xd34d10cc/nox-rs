@@ -10,19 +10,17 @@ mod types;
 use std::io;
 
 use crate::context::Env;
-use crate::statement::Statement;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut context = (Env::new(), io::stdin() , io::stdout());
+    let mut context = (Env::new(), io::stdin(), io::stdout());
     loop {
         let mut line = String::new();
         std::io::stdin().read_line(&mut line)?;
-        let s = Statement::parse(line.trim().as_bytes());
-        println!("AST: {:?}", s);
+        let program = statement::parse(line.trim().as_bytes());
+        println!("Program: {:?}", program);
 
-        if let Ok(s) = s {
-            println!("Executing...");
-            println!("{:?}", s.eval(&mut context));
+        if let Ok(program) = program {
+            println!("{:?}", statement::run(&program, &mut context));
         }
     }
 }

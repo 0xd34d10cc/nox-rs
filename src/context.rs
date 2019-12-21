@@ -73,38 +73,38 @@ where
 
 // IO streams implementations
 impl InputStream for Stdin {
-  fn read(&mut self) -> Option<Int> {
-    let mut line = String::new();
-    self.read_line(&mut line).ok()?;
-    line.trim().parse::<Int>().ok()
-  }
+    fn read(&mut self) -> Option<Int> {
+        let mut line = String::new();
+        self.read_line(&mut line).ok()?;
+        line.trim().parse::<Int>().ok()
+    }
 }
 
 impl OutputStream for Stdout {
-  fn write(&mut self, value: Int) {
-    use std::io::Write;
-    writeln!(self, "{}", value).unwrap();
-  }
+    fn write(&mut self, value: Int) {
+        use std::io::Write;
+        writeln!(self, "{}", value).unwrap();
+    }
 }
 
 impl InputStream for Vec<Int> {
-  fn read(&mut self) -> Option<Int> {
-    self.pop()
-  }
+    fn read(&mut self) -> Option<Int> {
+        self.pop()
+    }
 }
 
 impl OutputStream for Vec<Int> {
-  fn write(&mut self, value: Int) {
-    self.push(value)
-  }
+    fn write(&mut self, value: Int) {
+        self.push(value)
+    }
 }
 
 impl InputStream for () {
-  fn read(&mut self) -> Option<Int> {
-    None
-  }
+    fn read(&mut self) -> Option<Int> {
+        None
+    }
 }
 
 impl OutputStream for () {
-  fn write(&mut self, _: Int) {}
+    fn write(&mut self, _: Int) {}
 }

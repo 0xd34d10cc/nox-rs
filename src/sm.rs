@@ -1,6 +1,6 @@
 use crate::context::ExecutionContext;
 use crate::ops::{LogicOp, Op};
-use crate::statement::Statement;
+use crate::statement;
 use crate::types::{Int, Var};
 
 // Stack machine instruction
@@ -19,7 +19,7 @@ type Program = Vec<Instruction>;
 type Stack = Vec<Int>;
 
 // convert from statement ast to list of stack machine instructions
-fn compile(statements: Statement) -> Program {
+fn compile(statements: statement::Program) -> Program {
     todo!()
 }
 

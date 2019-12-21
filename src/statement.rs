@@ -9,61 +9,70 @@ pub enum Statement {
     Assign(Var, Expr),
     Read(Var),
     Write(Expr),
-    Seq(Box<Statement>, Box<Statement>), // TODO: use vector instead of this
 }
 
-// parse statement
 impl Statement {
-    pub fn parse(input: &[u8]) -> Result<Statement, Box<dyn Error>> {
-        let (rest, statement) = parse::statements(input).map_err(|e| {
-            format!(
-                "Failed to parse statement {}: {:?}",
-                String::from_utf8_lossy(input),
-                e
-            )
-        })?;
-
-        if !rest.is_empty() {
-            return Err(format!(
-                "Incomplete parse of statement {}: {}",
-                String::from_utf8_lossy(input),
-                String::from_utf8_lossy(rest)
-            )
-            .into());
-        }
-
-        Ok(statement)
-    }
-
     pub fn eval<C>(&self, context: &mut C) -> Result<(), Box<dyn Error>>
     where
         C: ExecutionContext,
     {
-      match self {
-        Statement::Assign(name, value) => {
-          let value = value.eval(context)?;
-          context.set(name, value);
-        }
-        Statement::Read(name) => {
-          let value = context.read().ok_or_else(|| format!("Failed to read {}: no input", name))?;
-          context.set(name, value);
-        }
-        Statement::Write(expr) => {
-          let value = expr.eval(context)?;
-          context.write(value);
-        }
-        Statement::Seq(first, second) => {
-          first.eval(context)?;
-          second.eval(context)?;
-        }
-      }
+        match self {
+            Statement::Assign(name, value) => {
+                let value = value.eval(context)?;
+                context.set(name, value);
+            }
+            Statement::Read(name) => {
+                let value = context
+                    .read()
+                    .ok_or_else(|| format!("Failed to read {}: no input", name))?;
+                context.set(name, value);
+            }
+            Statement::Write(expr) => {
+                let value = expr.eval(context)?;
+                context.write(value);
+            }
+        };
 
-      Ok(())
+        Ok(())
     }
 }
 
+pub type Program = Vec<Statement>;
+
+pub fn parse(input: &[u8]) -> Result<Program, Box<dyn Error>> {
+    let (rest, program) = parse::program(input).map_err(|e| {
+        format!(
+            "Failed to parse statement {}: {:?}",
+            String::from_utf8_lossy(input),
+            e
+        )
+    })?;
+
+    if !rest.is_empty() {
+        return Err(format!(
+            "Incomplete parse of statement {}: {}",
+            String::from_utf8_lossy(input),
+            String::from_utf8_lossy(rest)
+        )
+        .into());
+    }
+
+    Ok(program)
+}
+
+pub fn run<C>(program: &Program, context: &mut C) -> Result<(), Box<dyn Error>>
+where
+    C: ExecutionContext,
+{
+    for statement in program {
+        statement.eval(context)?;
+    }
+
+    Ok(())
+}
+
 mod parse {
-    // Statements ::= Statement (';' Statement)*
+    // Program ::= Statement (';' Statement)*
     // Statement ::= Assign | Read | Write
     // Assign ::= Var '=' Expr
     // Read ::= 'read(' Var ')'
@@ -81,15 +90,18 @@ mod parse {
     use nom::IResult;
 
     fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
-      take_while(|c| (c as char).is_whitespace())(input)
+        take_while(|c| (c as char).is_whitespace())(input)
     }
 
-    pub fn statements(input: &[u8]) -> IResult<&[u8], Statement> {
+    pub fn program(input: &[u8]) -> IResult<&[u8], Program> {
         let (input, first) = statement(input)?;
         fold_many0(
             tuple((tag(";"), spaces, statement)),
-            first,
-            |acc, (_, _, statement)| Statement::Seq(Box::new(acc), Box::new(statement)),
+            vec![first],
+            |mut program, (_, _, statement)| {
+                program.push(statement);
+                program
+            },
         )(input)
     }
 
@@ -98,7 +110,8 @@ mod parse {
     }
 
     fn assign(input: &[u8]) -> IResult<&[u8], Statement> {
-        let (rest, (var, _,  _, _, expr)) = tuple((variable, spaces, tag("="), spaces, expr))(input)?;
+        let (rest, (var, _, _, _, expr)) =
+            tuple((variable, spaces, tag("="), spaces, expr))(input)?;
         Ok((rest, Statement::Assign(var, expr)))
     }
 
