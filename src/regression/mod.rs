@@ -1,12 +1,12 @@
-mod test000;
+mod complex_statements;
 mod simple_statements;
 mod statements;
-mod complex_statements;
+mod test000;
 
-use crate::types::Int;
 use crate::context::Env;
-use crate::statement;
 use crate::sm::{self, StackMachine};
+use crate::statement;
+use crate::types::Int;
 
 pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
     let program = statement::parse(program.as_bytes()).unwrap();

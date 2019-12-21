@@ -120,12 +120,14 @@ pub mod parse {
     }
 
     fn read(input: &[u8]) -> IResult<&[u8], Statement> {
-        let (rest, (_, _, _, var, _)) = tuple((tag("read"), spaces, tag("("), variable, tag(")")))(input)?;
+        let (rest, (_, _, _, var, _)) =
+            tuple((tag("read"), spaces, tag("("), variable, tag(")")))(input)?;
         Ok((rest, Statement::Read(var)))
     }
 
     fn write(input: &[u8]) -> IResult<&[u8], Statement> {
-        let (rest, (_, _, _, e, _)) = tuple((tag("write"), spaces, tag("("), expr, tag(")")))(input)?;
+        let (rest, (_, _, _, e, _)) =
+            tuple((tag("write"), spaces, tag("("), expr, tag(")")))(input)?;
         Ok((rest, Statement::Write(e)))
     }
 }
