@@ -1,6 +1,7 @@
 use crate::context::ExecutionContext;
 use crate::ops::{LogicOp, Op};
-use crate::statement;
+use crate::expr::Expr;
+use crate::statement::{self, Statement};
 use crate::types::{Int, Var};
 
 // Stack machine instruction
@@ -18,9 +19,45 @@ pub enum Instruction {
 type Program = Vec<Instruction>;
 type Stack = Vec<Int>;
 
+fn compile_expr(e: &Expr, program: &mut Program) {
+  match e {
+    Expr::Const(n) => program.push(Instruction::Const(*n)),
+    Expr::Var(var) => program.push(Instruction::Load(var.clone())),
+    Expr::Op(op, lhs, rhs) => {
+      compile_expr(lhs, program);
+      compile_expr(rhs, program);
+      program.push(Instruction::Op(*op));
+    },
+    Expr::LogicOp(op, lhs, rhs) => {
+      compile_expr(lhs, program);
+      compile_expr(rhs, program);
+      program.push(Instruction::LogicOp(*op));
+    }
+  }
+}
+
 // convert from statement ast to list of stack machine instructions
-fn compile(statements: statement::Program) -> Program {
-    todo!()
+pub fn compile(statements: &statement::Program) -> Program {
+  let mut program = Program::new();
+
+  for statement in statements {
+    match statement {
+      Statement::Read(var) => {
+        program.push(Instruction::Read);
+        program.push(Instruction::Store(var.clone()));
+      },
+      Statement::Write(expr) => {
+        compile_expr(expr, &mut program);
+        program.push(Instruction::Write);
+      },
+      Statement::Assign(var, expr) => {
+        compile_expr(expr, &mut program);
+        program.push(Instruction::Store(var.clone()));
+      }
+    }
+  }
+
+  program
 }
 
 pub struct StackMachine<C> {
