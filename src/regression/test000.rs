@@ -12,6 +12,7 @@ fn eval(expr: Expr, context: &Context) -> Int {
     use crate::context::Memory;
     use crate::statement::{self, Statement};
     use crate::types::Var;
+    use crate::sm::{self, StackMachine, Instruction};
 
     // first evaluate expr in expression language
     let e = expr.eval(context).unwrap();
@@ -29,9 +30,16 @@ fn eval(expr: Expr, context: &Context) -> Int {
     let s = context.get("RESULT").unwrap();
     assert_eq!(e, s);
 
-    // then in state machine instructions (TODO)
+    // then using state machine instructions
+    let mut program = sm::compile(&program);
+    program.push(Instruction::Load(Var::from("RESULT")));
 
-    s
+    let mut machine = StackMachine::new((Context::new(), (), ()));
+    machine.run(&program).unwrap();
+    let sm = machine.pop().unwrap();
+    assert_eq!(s, sm);
+
+    sm
 }
 
 fn make_context(variables: &[(&str, Int)]) -> Context {
