@@ -65,17 +65,15 @@ impl Expr {
 }
 
 pub mod parse {
-    // TODO: deal with precedence of logic operations
-
-    // Expr ::= Logic
-    // Logic ::= Arithm ( '<'  Arithm
-    //                  | '<=' Arithm
-    //                  | '>'  Arithm
-    //                  | '>=' Arithm
-    //                  | '==' Arithm
-    //                  | '!=' Arithm
-    //                  | '&&' Arithm
-    //                  | '||' Arithm)*
+    // Expr ::= Disj
+    // Disj ::= Conj ('!!' Conj)*
+    // Conj ::= Comp ('&&' Comp)*
+    // Comp ::= Arithm ( '<'  Arithm
+    //                 | '<=' Arithm
+    //                 | '>'  Arithm
+    //                 | '>=' Arithm
+    //                 | '==' Arithm
+    //                 | '!=' Arithm)*
     //
     // Arithm ::= Term ('+' Term | '-' Term)*
     // Term ::= Factor ('*' Factor | '/' Factor | '%' Factor)*
@@ -152,14 +150,22 @@ pub mod parse {
         )(input)
     }
 
-    fn logic_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
+    fn disjunction_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
+        let (input, _) = alt((tag("!!"), tag("||")))(input)?;
+        Ok((input, LogicOp::Or))
+    }
+
+    fn conjunction_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
+        let (input, _) = tag("&&")(input)?;
+        Ok((input, LogicOp::And))
+    }
+
+    fn comparison_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
         let (input, op) = alt((
             tag("<="),
             tag(">="),
             tag("=="),
             tag("!="),
-            tag("&&"),
-            tag("||"),
             tag("<"),
             tag(">"),
         ))(input)?;
@@ -171,25 +177,43 @@ pub mod parse {
             b">=" => LogicOp::GreaterOrEqual,
             b"==" => LogicOp::Eq,
             b"!=" => LogicOp::NotEq,
-            b"&&" => LogicOp::And,
-            b"||" => LogicOp::Or,
             _ => unreachable!(),
         };
 
         Ok((input, op))
     }
 
-    fn logic(input: &[u8]) -> IResult<&[u8], Expr> {
+    fn comparison(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = arithmetic(input)?;
         let (input, _) = spaces(input)?;
         fold_many0(
-            tuple((logic_op, spaces, arithmetic, spaces)),
+            tuple((comparison_op, spaces, arithmetic, spaces)),
+            lhs,
+            |lhs, (op, _, rhs, _)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
+        )(input)
+    }
+
+    fn conjunction(input: &[u8]) -> IResult<&[u8], Expr> {
+        let (input, lhs) = comparison(input)?;
+        let (input, _) = spaces(input)?;
+        fold_many0(
+            tuple((conjunction_op, spaces, comparison, spaces)),
+            lhs,
+            |lhs, (op, _, rhs, _)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
+        )(input)
+    }
+
+    fn disjunction(input: &[u8]) -> IResult<&[u8], Expr> {
+        let (input, lhs) = conjunction(input)?;
+        let (input, _) = spaces(input)?;
+        fold_many0(
+            tuple((disjunction_op, spaces, conjunction, spaces)),
             lhs,
             |lhs, (op, _, rhs, _)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
         )(input)
     }
 
     pub fn expr(input: &[u8]) -> IResult<&[u8], Expr> {
-        logic(input)
+        disjunction(input)
     }
 }

@@ -74,7 +74,7 @@ where
     Ok(())
 }
 
-mod parse {
+pub mod parse {
     // Program ::= Statement (';' Statement)*
     // Statement ::= Assign | Read | Write
     // Assign ::= Var '=' Expr
@@ -97,11 +97,12 @@ mod parse {
     }
 
     pub fn program(input: &[u8]) -> IResult<&[u8], Program> {
+        let (input, _) = spaces(input)?;
         let (input, first) = statement(input)?;
         fold_many0(
-            tuple((tag(";"), spaces, statement)),
+            tuple((spaces, tag(";"), spaces, statement, spaces)),
             vec![first],
-            |mut program, (_, _, statement)| {
+            |mut program, (_, _, _, statement, _)| {
                 program.push(statement);
                 program
             },
@@ -114,17 +115,17 @@ mod parse {
 
     fn assign(input: &[u8]) -> IResult<&[u8], Statement> {
         let (rest, (var, _, _, _, expr)) =
-            tuple((variable, spaces, tag("="), spaces, expr))(input)?;
+            tuple((variable, spaces, tag(":="), spaces, expr))(input)?;
         Ok((rest, Statement::Assign(var, expr)))
     }
 
     fn read(input: &[u8]) -> IResult<&[u8], Statement> {
-        let (rest, (_, var, _)) = tuple((tag("read("), variable, tag(")")))(input)?;
+        let (rest, (_, _, _, var, _)) = tuple((tag("read"), spaces, tag("("), variable, tag(")")))(input)?;
         Ok((rest, Statement::Read(var)))
     }
 
     fn write(input: &[u8]) -> IResult<&[u8], Statement> {
-        let (rest, (_, e, _)) = tuple((tag("write("), expr, tag(")")))(input)?;
+        let (rest, (_, _, _, e, _)) = tuple((tag("write"), spaces, tag("("), expr, tag(")")))(input)?;
         Ok((rest, Statement::Write(e)))
     }
 }

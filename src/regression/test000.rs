@@ -10,9 +10,9 @@ fn parse(input: &str) -> Expr {
 
 fn eval(expr: Expr, context: &Context) -> Int {
     use crate::context::Memory;
+    use crate::sm::{self, Instruction, StackMachine};
     use crate::statement::{self, Statement};
     use crate::types::Var;
-    use crate::sm::{self, StackMachine, Instruction};
 
     // first evaluate expr in expression language
     let e = expr.eval(context).unwrap();
@@ -37,6 +37,7 @@ fn eval(expr: Expr, context: &Context) -> Int {
     let mut machine = StackMachine::new((Context::new(), (), ()));
     machine.run(&program).unwrap();
     let sm = machine.pop().unwrap();
+    assert_eq!(machine.pop(), None); // stack should be empty
     assert_eq!(s, sm);
 
     sm

@@ -86,42 +86,47 @@ where
         self.stack.pop()
     }
 
+    pub fn execute(&mut self, instruction: &Instruction) -> Result<(), Box<dyn Error>> {
+        match instruction {
+            Instruction::Op(op) => {
+                let rhs = self.pop().ok_or("Empty stack (arithmetic, rhs)")?;
+                let lhs = self.pop().ok_or("Empty stack (arithmetic, lhs)")?;
+                let value = op.apply(lhs, rhs)?;
+                self.push(value);
+            }
+            Instruction::LogicOp(op) => {
+                let rhs = self.pop().ok_or("Empty stack (logic, rhs)")?;
+                let lhs = self.pop().ok_or("Empty stack (logic, lhs)")?;
+                let value = op.apply(lhs, rhs);
+                self.push(Int::from(value));
+            }
+            Instruction::Const(n) => self.push(*n),
+            Instruction::Read => {
+                let value = self.context.read().ok_or("No input (read)")?;
+                self.push(value);
+            }
+            Instruction::Write => {
+                let value = self.pop().ok_or("Empty stack (write)")?;
+                self.context.write(value);
+            }
+            Instruction::Load(var) => {
+                let value = self
+                    .context
+                    .get(var)
+                    .ok_or_else(|| format!("Variable {} is not defined", var))?;
+                self.push(value);
+            }
+            Instruction::Store(var) => {
+                let value = self.pop().ok_or("Empty stack (store)")?;
+                self.context.set(var, value);
+            }
+        }
+        Ok(())
+    }
+
     pub fn run(&mut self, program: &Program) -> Result<(), Box<dyn Error>> {
         for instruction in program {
-            match instruction {
-                Instruction::Op(op) => {
-                    let rhs = self.pop().ok_or("Empty stack (arithmetic, rhs)")?;
-                    let lhs = self.pop().ok_or("Empty stack (arithmetic, lhs)")?;
-                    let value = op.apply(lhs, rhs)?;
-                    self.push(value);
-                }
-                Instruction::LogicOp(op) => {
-                    let rhs = self.pop().ok_or("Empty stack (logic, rhs)")?;
-                    let lhs = self.pop().ok_or("Empty stack (logic, lhs)")?;
-                    let value = op.apply(lhs, rhs);
-                    self.push(Int::from(value));
-                }
-                Instruction::Const(n) => self.push(*n),
-                Instruction::Read => {
-                    let value = self.context.read().ok_or("No input (read)")?;
-                    self.push(value);
-                }
-                Instruction::Write => {
-                    let value = self.pop().ok_or("Empty stack (write)")?;
-                    self.context.write(value);
-                }
-                Instruction::Load(var) => {
-                    let value = self
-                        .context
-                        .get(var)
-                        .ok_or_else(|| format!("Variable {} is not defined", var))?;
-                    self.push(value);
-                }
-                Instruction::Store(var) => {
-                    let value = self.pop().ok_or("Empty stack (store)")?;
-                    self.context.set(var, value);
-                }
-            }
+            self.execute(instruction)?;
         }
 
         Ok(())
