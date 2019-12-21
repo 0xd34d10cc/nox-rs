@@ -60,7 +60,7 @@ impl Expr {
     }
 }
 
-mod parse {
+pub mod parse {
     // TODO: deal with precedence of logic operations
 
     // Expr ::= Logic
@@ -81,9 +81,11 @@ mod parse {
     // Var ::= Alpha (Alpha | Digit)*
 
     use super::*;
+    use crate::types::parse::{integer, variable};
+
     use nom::branch::alt;
-    use nom::bytes::complete::{tag, take_while, take_while1};
-    use nom::combinator::{map, map_res, opt};
+    use nom::bytes::complete::{tag, take_while};
+    use nom::combinator::{map, opt};
     use nom::multi::fold_many0;
     use nom::sequence::tuple;
     use nom::IResult;
@@ -92,29 +94,11 @@ mod parse {
         take_while(|c| (c as char).is_whitespace())(input)
     }
 
-    fn variable(input: &[u8]) -> IResult<&[u8], Expr> {
-        let (input, first) = take_while1(|c| (c as char).is_alphabetic())(input)?;
-        let (input, second) = take_while(|c| (c as char).is_alphanumeric())(input)?;
-        let first = std::str::from_utf8(first).unwrap();
-        let second = std::str::from_utf8(second).unwrap();
-        let name = Var::from(first) + second;
-
-        Ok((input, Expr::Var(name)))
-    }
-
-    fn integer(input: &[u8]) -> IResult<&[u8], Expr> {
-        let (input, n) = map_res(take_while1(|c| (c as char).is_numeric()), |number| {
-            std::str::from_utf8(number).unwrap().parse::<Int>()
-        })(input)?;
-
-        Ok((input, Expr::Const(n)))
-    }
-
     fn factor(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, minus) = opt(tag(b"-"))(input)?;
         let (input, node) = alt((
-            variable,
-            integer,
+            map(variable, Expr::Var),
+            map(integer, Expr::Const),
             map(tuple((tag("("), expr, tag(")"))), |(_, e, _)| e),
         ))(input)?;
 
