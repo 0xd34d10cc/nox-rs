@@ -35,11 +35,30 @@ impl Statement {
         Ok(statement)
     }
 
-    pub fn eval<C>(&self, context: &mut C)
+    pub fn eval<C>(&self, context: &mut C) -> Result<(), Box<dyn Error>>
     where
         C: ExecutionContext,
     {
-        todo!()
+      match self {
+        Statement::Assign(name, value) => {
+          let value = value.eval(context)?;
+          context.set(name, value);
+        }
+        Statement::Read(name) => {
+          let value = context.read().ok_or_else(|| format!("Failed to read {}: no input", name))?;
+          context.set(name, value);
+        }
+        Statement::Write(expr) => {
+          let value = expr.eval(context)?;
+          context.write(value);
+        }
+        Statement::Seq(first, second) => {
+          first.eval(context)?;
+          second.eval(context)?;
+        }
+      }
+
+      Ok(())
     }
 }
 
