@@ -1,5 +1,7 @@
+#[cfg(test)]
 use std::error::Error;
 
+#[cfg(test)]
 use crate::context::Memory;
 use crate::ops::{LogicOp, Op};
 use crate::types::{Int, Var};
@@ -36,6 +38,7 @@ impl Expr {
         Ok(e)
     }
 
+    #[cfg(test)]
     pub fn eval<M: Memory>(&self, memory: &M) -> Result<Int, Box<dyn Error>> {
         match self {
             Expr::Var(name) => {

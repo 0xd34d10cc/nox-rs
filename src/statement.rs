@@ -1,5 +1,6 @@
 use std::error::Error;
 
+#[cfg(test)]
 use crate::context::ExecutionContext;
 use crate::expr::Expr;
 use crate::types::Var;
@@ -12,6 +13,7 @@ pub enum Statement {
 }
 
 impl Statement {
+    #[cfg(test)]
     pub fn eval<C>(&self, context: &mut C) -> Result<(), Box<dyn Error>>
     where
         C: ExecutionContext,
@@ -60,6 +62,7 @@ pub fn parse(input: &[u8]) -> Result<Program, Box<dyn Error>> {
     Ok(program)
 }
 
+#[cfg(test)]
 pub fn run<C>(program: &Program, context: &mut C) -> Result<(), Box<dyn Error>>
 where
     C: ExecutionContext,

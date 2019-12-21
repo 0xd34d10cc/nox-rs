@@ -31,6 +31,40 @@ impl Memory for Env {
     }
 }
 
+// boilerplate to make &mut T work
+impl<T> Memory for &mut T
+where
+    T: Memory,
+{
+    fn get(&self, name: &str) -> Option<Int> {
+        <T as Memory>::get(self, name)
+    }
+
+    fn set(&mut self, name: &str, value: Int) {
+        <T as Memory>::set(self, name, value)
+    }
+}
+
+impl<T> InputStream for &mut T
+where
+    T: InputStream,
+{
+    fn read(&mut self) -> Option<Int> {
+        <T as InputStream>::read(self)
+    }
+}
+
+impl<T> OutputStream for &mut T
+where
+    T: OutputStream,
+{
+    fn write(&mut self, value: Int) {
+        <T as OutputStream>::write(self, value)
+    }
+}
+
+impl<T> ExecutionContext for &mut T where T: ExecutionContext {}
+
 // boilerplate to make tuple of (memory, input, output) implement ExecutionContext
 impl<M, I, O> Memory for (M, I, O)
 where
