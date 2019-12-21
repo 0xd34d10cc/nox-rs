@@ -9,7 +9,28 @@ fn parse(input: &str) -> Expr {
 }
 
 fn eval(expr: Expr, context: &Context) -> Int {
-    expr.eval(context).unwrap()
+    use crate::statement::Statement;
+    use crate::types::Var;
+    use crate::context::Memory;
+
+    // first evaluate expr in expression language
+    let e = expr.eval(context).unwrap();
+
+    // then in statements language
+    let mut statement = Statement::Assign(Var::from("RESULT"), expr);
+    for (name, value) in context.iter() {
+        let set_var = Statement::Assign(name.to_string(), Expr::Const(*value));
+        statement = Statement::Seq(Box::new(set_var), Box::new(statement));
+    }
+
+    let mut context = (Context::new(), (), ());
+    statement.eval(&mut context).unwrap();
+    let s = context.get("RESULT").unwrap();
+    assert_eq!(e, s);
+
+    // then in state machine instructions (TODO)
+
+    s
 }
 
 fn make_context(variables: &[(&str, Int)]) -> Context {
