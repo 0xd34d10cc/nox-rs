@@ -19,6 +19,15 @@ enum Register {
     ESP = 7,
 }
 
+impl Register {
+    fn is_volatile(&self) -> bool {
+        match self {
+            Register::EAX | Register::ECX | Register::EDX => true,
+            _ => false
+        }
+    }
+}
+
 impl Display for Register {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let name = match self {
@@ -128,7 +137,6 @@ impl Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, ".globl main")?;
 
-
         // declare global variables
         writeln!(f, ".data")?;
         for var in self.globals.iter() {
@@ -153,6 +161,7 @@ const WORD: usize = 4;
 #[derive(Debug)]
 pub struct Compiler {
     free_registers: Vec<Register>,
+    used_registers: Vec<Register>, // list of non-volatile registers which have been used at least once
     stack: Vec<Operand>, // this is *symbolic* stack, it can contain registers
 }
 
@@ -160,6 +169,7 @@ impl Compiler {
     pub fn new() -> Self {
         Compiler {
             free_registers: vec![Register::EBX, Register::ECX, Register::ESI],
+            used_registers: Vec::new(),
             stack: Vec::new()
         }
     }
@@ -181,8 +191,12 @@ impl Compiler {
     }
 
     fn push(&mut self, op: Operand) {
-        if let Operand::Register(taken) = op {
-            self.free_registers.retain(|&r| r != taken);
+        if let Operand::Register(r) = op {
+            self.free_registers.retain(|&register| register != r);
+
+            if !r.is_volatile() && !self.used_registers.contains(&r) {
+                self.used_registers.push(r);
+            }
         }
 
         self.stack.push(op);
@@ -259,13 +273,25 @@ impl Compiler {
 
     pub fn compile(&mut self, source: &sm::Program) -> Result<Program, Box<dyn Error>> {
         let mut program = Program::default();
-        // generate prologue
-        program.text.push((Instruction::Push(Operand::Register(Register::EBP)), "prologue".into()));
-        program.text.push((Instruction::Mov(Operand::Register(Register::EBP), Operand::Register(Register::ESP)), "prologue".into()));
-
         // actual code
         for instruction in source {
             self.compile_instruction(&mut program, instruction)?;
+        }
+
+        let mut prologue = Vec::new();
+        // generate prologue
+        for register in self.used_registers.iter() {
+            prologue.push((Instruction::Push(Operand::Register(*register)), "prologue".into()));
+        }
+
+        prologue.push((Instruction::Push(Operand::Register(Register::EBP)), "prologue".into()));
+        prologue.push((Instruction::Mov(Operand::Register(Register::EBP), Operand::Register(Register::ESP)), "prologue".into()));
+
+        prologue.append(&mut program.text);
+        program.text = prologue;
+
+        for register in self.used_registers.iter().rev() {
+            program.text.push((Instruction::Pop(Operand::Register(*register)), "epilogue".into()));
         }
 
         // generate epilogue
