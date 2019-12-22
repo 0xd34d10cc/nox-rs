@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{self, Display};
 
+use crate::ops::Op;
 use crate::sm;
 use crate::types::{Int, Var};
 
@@ -76,35 +77,15 @@ impl Display for Operand {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Op {
-    Add,
-    Sub,
-    Mul,
-    And,
-    Or,
-    Xor,
-}
-
-impl Display for Op {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let name = match self {
-            Op::Add => "addl",
-            Op::Sub => "subl",
-            Op::Mul => "mull",
-            Op::And => "andl",
-            Op::Or => "orl",
-            Op::Xor => "xorl",
-        };
-
-        write!(f, "{}", name)
-    }
-}
-
 #[derive(Debug, Clone)]
 enum Instruction {
-    Mov(Operand /* to */, Operand /* from */),
-    Op(Op, Operand, Operand),
+    Mov(Operand /* dst */, Operand /* src */),
+    Add(Operand, Operand),
+    Sub(Operand, Operand),
+    Mul(Operand, Operand),
+    And(Operand, Operand),
+    Or(Operand, Operand),
+    Xor(Operand, Operand),
     Cmp(Operand, Operand),
     Div(Operand),
     Cltd,
@@ -118,15 +99,20 @@ enum Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Instruction::Mov(dst, src) => write!(f, "movl {}, {}", src, dst),
-            Instruction::Op(op, left, right) => write!(f, "{} {}, {}", op, left, right),
-            Instruction::Cmp(left, right) => write!(f, "cmp {}, {}", left, right),
-            Instruction::Div(right) => write!(f, "idivl {}", right),
+            Instruction::Mov(dst, src) => write!(f, "movl \t{}, {}", src, dst),
+            Instruction::Add(dst, src) => write!(f, "addl \t{}, {}", src, dst),
+            Instruction::Sub(dst, src) => write!(f, "subl \t{}, {}", src, dst),
+            Instruction::Mul(dst, src) => write!(f, "imull\t{}, {}", src, dst),
+            Instruction::And(dst, src) => write!(f, "andl \t{}, {}", src, dst),
+            Instruction::Or(dst, src) => write!(f, "orl  \t{}, {}", src, dst),
+            Instruction::Xor(dst, src) => write!(f, "xorl \t{}, {}", src, dst),
+            Instruction::Cmp(dst, src) => write!(f, "cmp  \t{}, {}", src, dst),
+            Instruction::Div(right) => write!(f, "idivl\t{}", right),
             Instruction::Cltd => write!(f, "cltd"),
-            Instruction::Set(what, where_) => write!(f, "set {}, {}", what, where_),
-            Instruction::Push(op) => write!(f, "pushl {}", op),
-            Instruction::Pop(op) => write!(f, "popl {}", op),
-            Instruction::Call(function) => write!(f, "call {}", function),
+            Instruction::Set(what, where_) => write!(f, "set  \t{}, {}", what, where_),
+            Instruction::Push(op) => write!(f, "pushl\t{}", op),
+            Instruction::Pop(op) => write!(f, "popl \t{}", op),
+            Instruction::Call(function) => write!(f, "call \t{}", function),
             Instruction::Ret => write!(f, "ret"),
         }
     }
@@ -134,27 +120,27 @@ impl Display for Instruction {
 
 #[derive(Debug, Default)]
 pub struct Program {
-    text: Vec<Instruction>,
+    text: Vec<(Instruction, String)>,
     globals: HashSet<Var>,
 }
 
 impl Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "\t.globl main")?;
+        writeln!(f, ".globl main")?;
 
 
         // declare global variables
         writeln!(f, ".data")?;
         for var in self.globals.iter() {
-            writeln!(f, "\tglobal_{}:\t.int", var)?;
+            writeln!(f, "\tglobal_{}:\t.zero 4", var)?;
         }
 
         // actual program text
-        writeln!(f, "\t.text")?;
+        writeln!(f, ".text")?;
         writeln!(f, "main:")?;
 
-        for instruction in self.text.iter() {
-            writeln!(f, "\t{}", instruction)?;
+        for (instruction, comment) in self.text.iter() {
+            writeln!(f, "\t{}\t# {}", instruction, comment)?;
         }
 
         Ok(())
@@ -162,81 +148,108 @@ impl Display for Program {
     }
 }
 
-// number of registers that we're allowed to use
-const NUM_REGISTERS: usize = 3;
 const WORD: usize = 4;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Compiler {
-    free_registers: HashSet<Register>,
+    free_registers: Vec<Register>,
     stack: Vec<Operand>, // this is *symbolic* stack, it can contain registers
 }
 
 impl Compiler {
     pub fn new() -> Self {
-        let mut c = Compiler::default();
-        for i in 0..NUM_REGISTERS {
-            c.free_registers.insert(Register::from_index(i).unwrap());
+        Compiler {
+            free_registers: vec![Register::EBX, Register::ECX, Register::ESI],
+            stack: Vec::new()
         }
-        c
     }
 
-    fn push(&mut self) -> Operand {
+    fn allocate(&mut self) -> Operand {
         // allocate register if it is free
-        let op = match self.free_registers.iter().next() {
-            Some(register) => Operand::Register(*register),
-            None => match self.stack.last().unwrap() {
+        let op = if let Some(r) = self.free_registers.pop() {
+            Operand::Register(r)
+        }
+        else {
+            match self.stack.last().unwrap() {
                 Operand::Stack(offset) => Operand::Stack(offset + 1),
                 _ => Operand::Stack(0)
             }
         };
 
-        if let Operand::Register(r) = op {
-            debug_assert!(self.free_registers.contains(&r));
-            self.free_registers.remove(&r);
+        self.push(op.clone());
+        op
+    }
+
+    fn push(&mut self, op: Operand) {
+        if let Operand::Register(taken) = op {
+            self.free_registers.retain(|&r| r != taken);
         }
 
-        self.stack.push(op.clone());
-        op
+        self.stack.push(op);
     }
 
     fn pop(&mut self) -> Option<Operand> {
         let op = self.stack.pop();
         if let Some(Operand::Register(r)) = op {
-            debug_assert!(!self.free_registers.contains(&r));
-            self.free_registers.insert(r);
+            self.free_registers.push(r);
         }
         op
     }
 
     fn compile_instruction(&mut self, program: &mut Program, instruction: &sm::Instruction) -> Result<(), Box<dyn Error>> {
+        let comment = format!("{:?}", instruction);
         match instruction {
             sm::Instruction::Const(n) => {
-                let op = self.push();
-                program.text.push(Instruction::Mov(op, Operand::Literal(*n)));
+                let op = self.allocate();
+                program.text.push((Instruction::Mov(op, Operand::Literal(*n)), comment));
             }
             sm::Instruction::Write => {
                 let op = self.pop().ok_or("Empty stack (write)")?;
-                program.text.push(Instruction::Push(op));
-                program.text.push(Instruction::Call("nox_rt_write".to_string()));
-                program.text.push(Instruction::Pop(Operand::Register(Register::EDI)))
+                program.text.push((Instruction::Push(op), comment.clone()));
+                program.text.push((Instruction::Call("nox_rt_write".to_string()), comment.clone()));
+                program.text.push((Instruction::Pop(Operand::Register(Register::EDI)), comment))
             },
             sm::Instruction::Read => {
-                let dst = self.push();
-                program.text.push(Instruction::Call("nox_rt_read".to_string()));
-                program.text.push(Instruction::Mov(dst, Operand::Register(Register::EAX)));
+                let dst = self.allocate();
+                program.text.push((Instruction::Call("nox_rt_read".to_string()), comment.clone()));
+                program.text.push((Instruction::Mov(dst, Operand::Register(Register::EAX)), comment));
             },
             sm::Instruction::Load(var) => {
-                let dst = self.push();
+                let dst = self.allocate();
                 if !program.globals.contains(var) {
                     return Err(format!("Attempt to read from uninitialized variable: {}", var).into());
                 }
-                program.text.push(Instruction::Mov(dst, Operand::Named(var.clone())));
+                program.text.push((Instruction::Mov(dst, Operand::Named(var.clone())), comment));
             }
             sm::Instruction::Store(var) => {
                 let src = self.pop().ok_or("Empty stack (store)")?;
                 program.globals.insert(var.clone());
-                program.text.push(Instruction::Mov(Operand::Named(var.clone()), src));
+                program.text.push((Instruction::Mov(Operand::Named(var.clone()), src), comment));
+            },
+            sm::Instruction::Op(op) => {
+                let instruction = |lhs, rhs| {
+                    match op {
+                        Op::Add => Instruction::Add(lhs, rhs),
+                        Op::Sub => Instruction::Sub(lhs, rhs),
+                        Op::Mul => Instruction::Mul(lhs, rhs),
+                        _ => todo!()
+                    }
+                };
+                let rhs = self.pop().ok_or("Empty stack (add, rhs)")?;
+                let lhs = self.pop().ok_or("Empty stack (add, lhs)")?;
+                match lhs {
+                    Operand::Register(r) => {
+                        program.text.push((instruction(Operand::Register(r), rhs), comment));
+                        self.push(Operand::Register(r));
+                    },
+                    lhs => {
+                        // use EDI for operation then
+                        let dst = self.allocate();
+                        program.text.push((Instruction::Mov(Operand::Register(Register::EDI), lhs), comment.clone()));
+                        program.text.push((instruction(Operand::Register(Register::EDI), rhs), comment.clone()));
+                        program.text.push((Instruction::Mov(dst, Operand::Register(Register::EDI)), comment));
+                    }
+                }
             }
             _ => todo!()
         };
@@ -247,16 +260,20 @@ impl Compiler {
     pub fn compile(&mut self, source: &sm::Program) -> Result<Program, Box<dyn Error>> {
         let mut program = Program::default();
         // generate prologue
-        program.text.push(Instruction::Push(Operand::Register(Register::EBP)));
-        program.text.push(Instruction::Mov(Operand::Register(Register::EBP), Operand::Register(Register::ESP)));
+        program.text.push((Instruction::Push(Operand::Register(Register::EBP)), "prologue".into()));
+        program.text.push((Instruction::Mov(Operand::Register(Register::EBP), Operand::Register(Register::ESP)), "prologue".into()));
 
+        // actual code
         for instruction in source {
             self.compile_instruction(&mut program, instruction)?;
         }
 
-        program.text.push(Instruction::Pop(Operand::Register(Register::EBP)));
-        program.text.push(Instruction::Mov(Operand::Register(Register::EAX), Operand::Literal(0)));
-        program.text.push(Instruction::Ret);
+        // generate epilogue
+        program.text.push((Instruction::Pop(Operand::Register(Register::EBP)), "epilogue".into()));
+
+        // return code
+        program.text.push((Instruction::Mov(Operand::Register(Register::EAX), Operand::Literal(0)), "retcode".into()));
+        program.text.push((Instruction::Ret, "retcode".into()));
 
         Ok(program)
     }
