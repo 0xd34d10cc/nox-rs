@@ -70,7 +70,8 @@ impl Display for Operand {
         match self {
             Operand::Register(r) => write!(f, "%{}", r),
             Operand::Literal(n) => write!(f, "${}", n),
-            _ => todo!()
+            Operand::Named(name) => write!(f, "global_{}", name),
+            Operand::Stack(offset) => write!(f, "{}(ebp)", -offset * WORD as isize)
         }
     }
 }
@@ -83,6 +84,21 @@ enum Op {
     And,
     Or,
     Xor,
+}
+
+impl Display for Op {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let name = match self {
+            Op::Add => "addl",
+            Op::Sub => "subl",
+            Op::Mul => "mull",
+            Op::And => "andl",
+            Op::Or => "orl",
+            Op::Xor => "xorl",
+        };
+
+        write!(f, "{}", name)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -103,10 +119,15 @@ impl Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Instruction::Mov(dst, src) => write!(f, "movl {}, {}", src, dst),
+            Instruction::Op(op, left, right) => write!(f, "{} {}, {}", op, left, right),
+            Instruction::Cmp(left, right) => write!(f, "cmp {}, {}", left, right),
+            Instruction::Div(right) => write!(f, "idivl {}", right),
+            Instruction::Cltd => write!(f, "cltd"),
+            Instruction::Set(what, where_) => write!(f, "set {}, {}", what, where_),
             Instruction::Push(op) => write!(f, "pushl {}", op),
+            Instruction::Pop(op) => write!(f, "popl {}", op),
             Instruction::Call(function) => write!(f, "call {}", function),
             Instruction::Ret => write!(f, "ret"),
-            _ => todo!()
         }
     }
 }
@@ -121,9 +142,11 @@ impl Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "\t.globl main")?;
 
+
         // declare global variables
+        writeln!(f, ".data")?;
         for var in self.globals.iter() {
-            writeln!(f, "\t.global_{}", var)?;
+            writeln!(f, "\tglobal_{}:\t.int", var)?;
         }
 
         // actual program text
@@ -196,6 +219,24 @@ impl Compiler {
                 let op = self.pop().ok_or("Empty stack (write)")?;
                 program.text.push(Instruction::Push(op));
                 program.text.push(Instruction::Call("nox_rt_write".to_string()));
+                program.text.push(Instruction::Pop(Operand::Register(Register::EDI)))
+            },
+            sm::Instruction::Read => {
+                let dst = self.push();
+                program.text.push(Instruction::Call("nox_rt_read".to_string()));
+                program.text.push(Instruction::Mov(dst, Operand::Register(Register::EAX)));
+            },
+            sm::Instruction::Load(var) => {
+                let dst = self.push();
+                if !program.globals.contains(var) {
+                    return Err(format!("Attempt to read from uninitialized variable: {}", var).into());
+                }
+                program.text.push(Instruction::Mov(dst, Operand::Named(var.clone())));
+            }
+            sm::Instruction::Store(var) => {
+                let src = self.pop().ok_or("Empty stack (store)")?;
+                program.globals.insert(var.clone());
+                program.text.push(Instruction::Mov(Operand::Named(var.clone()), src));
             }
             _ => todo!()
         };
@@ -205,9 +246,16 @@ impl Compiler {
 
     pub fn compile(&mut self, source: &sm::Program) -> Result<Program, Box<dyn Error>> {
         let mut program = Program::default();
+        // generate prologue
+        program.text.push(Instruction::Push(Operand::Register(Register::EBP)));
+        program.text.push(Instruction::Mov(Operand::Register(Register::EBP), Operand::Register(Register::ESP)));
+
         for instruction in source {
             self.compile_instruction(&mut program, instruction)?;
         }
+
+        program.text.push(Instruction::Pop(Operand::Register(Register::EBP)));
+        program.text.push(Instruction::Mov(Operand::Register(Register::EAX), Operand::Literal(0)));
         program.text.push(Instruction::Ret);
 
         Ok(program)
