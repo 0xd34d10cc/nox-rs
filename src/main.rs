@@ -26,17 +26,22 @@ arg_enum! {
     }
 }
 
-#[derive(StructOpt)]
-#[structopt(name = "nox", about = "yet another toy language")]
-enum Opts {
+#[derive(StructOpt, Debug)]
+enum Command {
     Compile {
         #[structopt(parse(from_os_str))]
         file: PathBuf,
 
         #[structopt(short = "t", long = "target", possible_values = &Target::variants(), case_insensitive = true, default_value = "asm")]
         target: Target,
-    },
-    Interpret,
+    }
+}
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "nox", about = "yet another toy language")]
+struct Opts {
+    #[structopt(subcommand)]
+    command: Option<Command>
 }
 
 fn compile(file: &Path, target: Target) -> Result<(), Box<dyn Error>> {
@@ -64,9 +69,17 @@ fn compile(file: &Path, target: Target) -> Result<(), Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let result = match Opts::from_args() {
-        Opts::Compile { file, target } => compile(&file, target),
-        Opts::Interpret => Interpreter::new().run(),
+    let opts = Opts::from_args();
+
+    let result = if let Some(command) = opts.command {
+        match command {
+            Command::Compile {
+                file, target
+            } => compile(&file, target)
+        }
+    }
+    else {
+        Interpreter::new().run()
     };
 
     if let Err(e) = result {

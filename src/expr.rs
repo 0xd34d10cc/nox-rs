@@ -1,7 +1,5 @@
-#[cfg(all(test, feature = "regression"))]
 use std::error::Error;
 
-#[cfg(all(test, feature = "regression"))]
 use crate::context::Memory;
 use crate::ops::{LogicOp, Op};
 use crate::types::{Int, Var};
@@ -38,7 +36,6 @@ impl Expr {
         Ok(e)
     }
 
-    #[cfg(all(test, feature = "regression"))]
     pub fn eval<M: Memory>(&self, memory: &M) -> Result<Int, Box<dyn Error>> {
         match self {
             Expr::Var(name) => {
