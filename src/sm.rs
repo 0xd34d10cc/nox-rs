@@ -18,7 +18,7 @@ pub enum Instruction {
     Store(Var),
 }
 
-type Program = Vec<Instruction>;
+pub type Program = Vec<Instruction>;
 type Stack = Vec<Int>;
 
 fn compile_expr(e: &Expr, program: &mut Program) {

@@ -6,25 +6,26 @@ mod regression;
 mod sm;
 mod statement;
 mod types;
+mod x86;
 
 use std::error::Error;
 use std::io;
 
 use crate::context::{Env, ExecutionContext};
-use crate::sm::StackMachine;
+use crate::x86::Compiler;
 
-fn run<C>(line: &str, context: &mut C) -> Result<(), Box<dyn Error>>
+fn run<C>(line: &str, _context: &mut C) -> Result<(), Box<dyn Error>>
 where
     C: ExecutionContext,
 {
     let program = statement::parse(line.as_bytes())?;
-    println!("Statements program: {:#?}", program);
+    println!("Statements program:\n{:#?}", program);
 
     let program = sm::compile(&program);
-    println!("Stack machine program: {:#?}", program);
-    println!("Running...");
-    let mut machine = StackMachine::new(context);
-    println!("Result: {:?}", machine.run(&program));
+    println!("Stack machine program:\n{:#?}", program);
+
+    let program = Compiler::new().compile(&program)?;
+    println!("Assembly:\n{}", program);
 
     Ok(())
 }
