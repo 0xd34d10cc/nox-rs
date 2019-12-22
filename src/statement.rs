@@ -1,6 +1,6 @@
 use std::error::Error;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "regression"))]
 use crate::context::ExecutionContext;
 use crate::expr::Expr;
 use crate::types::Var;
@@ -13,7 +13,7 @@ pub enum Statement {
 }
 
 impl Statement {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "regression"))]
     pub fn eval<C>(&self, context: &mut C) -> Result<(), Box<dyn Error>>
     where
         C: ExecutionContext,
@@ -62,7 +62,7 @@ pub fn parse(input: &[u8]) -> Result<Program, Box<dyn Error>> {
     Ok(program)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "regression"))]
 pub fn run<C>(program: &Program, context: &mut C) -> Result<(), Box<dyn Error>>
 where
     C: ExecutionContext,

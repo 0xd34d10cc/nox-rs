@@ -1,7 +1,7 @@
-mod complex_statements;
 mod simple_statements;
-mod statements;
 mod test000;
+mod statements;
+mod complex_statements;
 
 use crate::context::Env;
 use crate::sm::{self, StackMachine};

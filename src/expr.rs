@@ -1,7 +1,7 @@
-#[cfg(test)]
+#[cfg(all(test, feature = "regression"))]
 use std::error::Error;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "regression"))]
 use crate::context::Memory;
 use crate::ops::{LogicOp, Op};
 use crate::types::{Int, Var};
@@ -15,7 +15,7 @@ pub enum Expr {
 }
 
 impl Expr {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "regression"))]
     pub fn parse(input: &[u8]) -> Result<Expr, Box<dyn Error>> {
         let (rest, e) = self::parse::expr(input).map_err(|e| {
             // TODO: find out how to pretty print nom errors
@@ -38,7 +38,7 @@ impl Expr {
         Ok(e)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "regression"))]
     pub fn eval<M: Memory>(&self, memory: &M) -> Result<Int, Box<dyn Error>> {
         match self {
             Expr::Var(name) => {
