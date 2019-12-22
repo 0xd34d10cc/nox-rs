@@ -1,6 +1,6 @@
-// mod complex_statements;
+mod complex_statements;
 mod simple_statements;
-// mod statements;
+mod statements;
 mod test000;
 
 use crate::context::Env;
