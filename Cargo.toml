@@ -11,3 +11,4 @@ rustyline = "5.0.5"
 
 [features]
 regression = []
+generated = ["regression"]
