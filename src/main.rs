@@ -34,14 +34,14 @@ enum Command {
 
         #[structopt(short = "t", long = "target", possible_values = &Target::variants(), case_insensitive = true, default_value = "asm")]
         target: Target,
-    }
+    },
 }
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "nox", about = "yet another toy language")]
 struct Opts {
     #[structopt(subcommand)]
-    command: Option<Command>
+    command: Option<Command>,
 }
 
 fn compile(file: &Path, target: Target) -> Result<(), Box<dyn Error>> {
@@ -73,12 +73,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let result = if let Some(command) = opts.command {
         match command {
-            Command::Compile {
-                file, target
-            } => compile(&file, target)
+            Command::Compile { file, target } => compile(&file, target),
         }
-    }
-    else {
+    } else {
         Interpreter::new().run()
     };
 
