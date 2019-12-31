@@ -1,6 +1,6 @@
+mod deep_expressions;
 mod expr;
 mod simple_statements;
-mod deep_expressions;
 
 #[cfg(feature = "generated")]
 mod generated;

@@ -4,11 +4,11 @@ use std::io::{self, Write};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-use crate::types::{Int, Var};
 use crate::context::{Env, InputStream, OutputStream};
 use crate::expr::Expr;
-use crate::statement;
 use crate::sm;
+use crate::statement;
+use crate::types::{Int, Var};
 use crate::x86;
 
 pub enum InputLine {
@@ -61,13 +61,13 @@ impl OutputStream for ProgramOutput {
 }
 
 pub struct Interpreter {
-    context: (Env, ProgramInput, ProgramOutput)
+    context: (Env, ProgramInput, ProgramOutput),
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
-            context: (Env::new(), ProgramInput, ProgramOutput)
+            context: (Env::new(), ProgramInput, ProgramOutput),
         }
     }
 
@@ -77,7 +77,7 @@ impl Interpreter {
                 if self.context.0.remove(&var).is_none() {
                     println!("No such variable: {}", var);
                 }
-            },
+            }
             InputLine::ResetEnv => self.context.0.clear(),
             InputLine::ShowEnv => println!("{:?}", self.context.0),
             InputLine::ShowExpr(e) => println!("{:?}", e),
@@ -86,13 +86,13 @@ impl Interpreter {
                 for statement in p {
                     println!("{:?}", statement);
                 }
-            },
+            }
             InputLine::RunStatements(p) => statement::run(&p, &mut self.context)?,
             InputLine::ShowSMInstructions(p) => {
                 for instruction in sm::compile(&p) {
                     println!("{:?}", instruction)
                 }
-            },
+            }
             InputLine::RunSMInstructions(p) => {
                 let p = sm::compile(&p);
                 let mut machine = sm::StackMachine::new(&mut self.context);
@@ -119,23 +119,25 @@ impl Interpreter {
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
                     match InputLine::parse(line.as_str()) {
-                        Ok(line) => if let Err(e) = self.execute(line) {
-                            println!("Failed to execute line: {}", e);
-                        },
-                        Err(e) => println!("{}", e)
+                        Ok(line) => {
+                            if let Err(e) = self.execute(line) {
+                                println!("Failed to execute line: {}", e);
+                            }
+                        }
+                        Err(e) => println!("{}", e),
                     };
-                },
+                }
                 Err(ReadlineError::Interrupted) => {
                     println!("CTRL-C");
-                    break
-                },
+                    break;
+                }
                 Err(ReadlineError::Eof) => {
                     println!("CTRL-D");
-                    break
-                },
+                    break;
+                }
                 Err(err) => {
                     println!("Error: {:?}", err);
-                    break
+                    break;
                 }
             }
         }
@@ -159,9 +161,9 @@ mod parse {
     // ShowAsm ::= ':asm' Statements
 
     use super::*;
-    use crate::types::parse::variable;
     use crate::expr::parse::expr;
     use crate::statement::parse::program;
+    use crate::types::parse::variable;
 
     use nom::branch::alt;
     use nom::bytes::complete::{tag, take_while};
@@ -185,7 +187,7 @@ mod parse {
             show_statements,
             show_asm,
             just_statements,
-            just_expression
+            just_expression,
         ))(input)
     }
 

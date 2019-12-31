@@ -34,14 +34,22 @@ enum Command {
 
         #[structopt(short = "t", long = "target", possible_values = &Target::variants(), case_insensitive = true, default_value = "asm")]
         target: Target,
-    }
+    },
+    Interpret {
+        #[structopt(parse(from_os_str))]
+        file: PathBuf,
+    },
+    SM {
+        #[structopt(parse(from_os_str))]
+        file: PathBuf,
+    },
 }
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "nox", about = "yet another toy language")]
 struct Opts {
     #[structopt(subcommand)]
-    command: Option<Command>
+    command: Option<Command>,
 }
 
 fn compile(file: &Path, target: Target) -> Result<(), Box<dyn Error>> {
@@ -68,17 +76,55 @@ fn compile(file: &Path, target: Target) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+use crate::context::{Env, InputStream, OutputStream};
+use crate::types::Int;
+use std::io::Write;
+struct TestInput;
+impl InputStream for TestInput {
+    fn read(&mut self) -> Option<Int> {
+        print!("> ");
+        std::io::stdout().flush().ok()?;
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).ok()?;
+        line.trim().parse::<Int>().ok()
+    }
+}
+
+struct TestOutput;
+impl OutputStream for TestOutput {
+    fn write(&mut self, val: Int) {
+        println!("{}", val);
+    }
+}
+
+fn interpret(file: &Path) -> Result<(), Box<dyn Error>> {
+    let program = std::fs::read_to_string(file)?;
+    let program = statement::parse(program.as_bytes())?;
+    let mut context = (Env::new(), TestInput, TestOutput);
+    statement::run(&program, &mut context)?;
+    Ok(())
+}
+
+fn run_sm(file: &Path) -> Result<(), Box<dyn Error>> {
+    let program = std::fs::read_to_string(file)?;
+    let program = statement::parse(program.as_bytes())?;
+    let program = sm::compile(&program);
+    let context = (Env::new(), TestInput, TestOutput);
+    let mut machine = sm::StackMachine::new(context);
+    machine.run(&program)?;
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let opts = Opts::from_args();
 
     let result = if let Some(command) = opts.command {
         match command {
-            Command::Compile {
-                file, target
-            } => compile(&file, target)
+            Command::Compile { file, target } => compile(&file, target),
+            Command::Interpret { file } => interpret(&file),
+            Command::SM { file } => run_sm(&file),
         }
-    }
-    else {
+    } else {
         Interpreter::new().run()
     };
 
