@@ -248,6 +248,10 @@ impl Compiler {
             }
             sm::Instruction::Write => {
                 let op = self.pop().ok_or("Empty stack (write)")?;
+                // write() opcode should be last in statement otherwise
+                // stack values might change after "nox_rt_write" has returned the control,
+                // because we're not saving volatile registers before call
+                debug_assert!(self.stack.is_empty());
                 push(Instruction::Push(op));
                 push(Instruction::Call("nox_rt_write".to_string()));
                 push(Instruction::Pop(Operand::Register(Register::EDI)))
