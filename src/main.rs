@@ -2,7 +2,7 @@ mod context;
 mod expr;
 mod interpreter;
 mod ops;
-#[cfg(feature = "regression")]
+#[cfg(test)]
 mod regression;
 mod sm;
 mod statement;

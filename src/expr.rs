@@ -13,7 +13,7 @@ pub enum Expr {
 }
 
 impl Expr {
-    #[cfg(all(test, feature = "regression"))]
+    #[cfg(test)]
     pub fn parse(input: &[u8]) -> Result<Expr, Box<dyn Error>> {
         let (rest, e) = self::parse::expr(input).map_err(|e| {
             // TODO: find out how to pretty print nom errors

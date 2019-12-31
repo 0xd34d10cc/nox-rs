@@ -258,6 +258,8 @@ impl Compiler {
             }
             sm::Instruction::Read => {
                 let dst = self.allocate();
+                // see explanation above
+                debug_assert!(self.stack.is_empty());
                 push(Instruction::Call("nox_rt_read".to_string()));
                 push(Instruction::Mov(dst, Operand::Register(Register::EAX)));
             }

@@ -1,9 +1,10 @@
-mod deep_expressions;
 mod expr;
 mod simple_statements;
 
 #[cfg(feature = "generated")]
 mod generated;
+#[cfg(feature = "deep-expressions")]
+mod deep_expressions;
 
 use crate::context::Env;
 use crate::sm::{self, StackMachine};
