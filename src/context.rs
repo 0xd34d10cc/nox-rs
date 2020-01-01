@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{Stdin, Stdout};
+use std::io::{self, Stdin, Stdout, Write};
 
 use crate::types::{Int, Var};
 
@@ -108,6 +108,9 @@ where
 // IO streams implementations
 impl InputStream for Stdin {
     fn read(&mut self) -> Option<Int> {
+        print!("I: ");
+        io::stdout().flush().ok()?;
+
         let mut line = String::new();
         self.read_line(&mut line).ok()?;
         line.trim().parse::<Int>().ok()
@@ -116,8 +119,7 @@ impl InputStream for Stdin {
 
 impl OutputStream for Stdout {
     fn write(&mut self, value: Int) {
-        use std::io::Write;
-        writeln!(self, "{}", value).unwrap();
+        writeln!(self, "O: {}", value).unwrap();
     }
 }
 
