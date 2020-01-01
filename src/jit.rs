@@ -46,7 +46,7 @@ pub struct Program {
     memory: ExecutableBuffer,
     globals: Globals,
     entrypoint: AssemblyOffset,
-    // this field here is only for lifetime control
+    // TODO: use phantom lifetime to make sure that Program will not outlive the Compiler
     #[allow(unused)]
     runtime: Box<Runtime>,
 }
@@ -594,6 +594,7 @@ impl Compiler {
             ; push QWORD [rsp]
             ; and rsp, !0x10 + 1
             // save non-volatile registers
+            // TODO: don't save registers that we're not going to use
             ; push rbx
             ; push rdi
             ; push rsi
@@ -636,7 +637,7 @@ impl Compiler {
         ops.commit()?;
         let memory = ops
             .finalize()
-            .expect("finalize() shouldn't fail if commit() was called before");
+            .expect("finalize() shouldn't fail if commit() have not failed");
         Ok(unsafe { Program::from_parts(memory, context.globals, entrypoint, context.runtime) })
     }
 }
