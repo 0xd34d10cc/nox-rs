@@ -143,7 +143,7 @@ impl Operand {
             ),
             Operand::Stack(offset) => dynasm!(ops
                 ; mov rax, QWORD c
-                ; mov QWORD [rsp - offset], rax
+                ; mov QWORD [rbp - offset], rax
             ),
         }
     }
@@ -154,7 +154,7 @@ impl Operand {
                 ; mov Rq(register as u8), Rq(r as u8)
             ),
             Operand::Stack(offset) => dynasm!(ops
-                ; mov Rq(register as u8), [rsp - offset]
+                ; mov Rq(register as u8), [rbp - offset]
             ),
         }
     }
@@ -165,7 +165,7 @@ impl Operand {
                 ; mov Rq(r as u8), Rq(register as u8)
             ),
             Operand::Stack(offset) => dynasm!(ops
-                ; mov [rsp - offset], Rq(register as u8)
+                ; mov [rbp - offset], Rq(register as u8)
             ),
         }
     }
@@ -179,7 +179,7 @@ impl Operand {
             Operand::Stack(offset) => dynasm!(ops
                 ; mov rax, QWORD location as _
                 ; mov rbx, QWORD [rax]
-                ; mov [rsp - offset], rbx
+                ; mov [rbp - offset], rbx
             ),
         }
     }
@@ -192,7 +192,7 @@ impl Operand {
             ),
             Operand::Stack(offset) => dynasm!(ops
                 ; mov rax, QWORD location as _
-                ; mov rbx, [rsp - offset]
+                ; mov rbx, [rbp - offset]
                 ; mov [rax], rbx
             ),
         }
@@ -270,7 +270,7 @@ struct CompilationContext {
 impl CompilationContext {
     fn new(globals: Globals, runtime: Box<Runtime>) -> Self {
         CompilationContext {
-            free_registers: vec![Register::R10],
+            free_registers: vec![Register::R12, Register::R13, Register::R14, Register::R15],
             stack: Vec::new(),
             globals,
             runtime,
@@ -325,7 +325,7 @@ impl Compiler {
                 ; idiv Rq(r as u8)
             ),
             Operand::Stack(offset) => dynasm!(ops
-                ; mov rbx, [rsp - offset]
+                ; mov rbx, [rbp - offset]
                 ; idiv rbx
             ),
         }
@@ -346,7 +346,7 @@ impl Compiler {
                 dynasm!(ops
                     ; test Rq(l), Rq(l)
                     ; setne Rb(l)
-                    ; and Rq(1), 0xff
+                    ; and Rq(l), 0xff
                     ; test Rq(r), Rq(r)
                     ; setne Rb(r)
                     ; and Rq(r), 0xff
@@ -407,6 +407,7 @@ impl Compiler {
             }
             sm::Instruction::Write => {
                 let src = context.pop().ok_or("Empty stack (write)")?;
+                debug_assert!(context.stack.is_empty());
                 let rt = &mut *context.runtime as *mut Runtime;
                 src.store_into(Register::RDX, ops);
                 dynasm!(ops
@@ -416,6 +417,7 @@ impl Compiler {
                 )
             }
             sm::Instruction::Read => {
+                debug_assert!(context.stack.is_empty());
                 let dst = context.allocate();
                 let rt = &mut *context.runtime as *mut Runtime;
                 dynasm!(ops
@@ -475,13 +477,13 @@ impl Compiler {
                         Operand::Stack(offset) => {
                             match op {
                                 Op::Add => dynasm!(ops
-                                    ; add Rq(lhs as u8), [rsp - offset]
+                                    ; add Rq(lhs as u8), [rbp - offset]
                                 ),
                                 Op::Sub => dynasm!(ops
-                                    ; sub Rq(lhs as u8), [rsp - offset]
+                                    ; sub Rq(lhs as u8), [rbp - offset]
                                 ),
                                 Op::Mul => dynasm!(ops
-                                    ; imul Rq(lhs as u8), [rsp - offset]
+                                    ; imul Rq(lhs as u8), [rbp - offset]
                                 ),
                                 Op::Div | Op::Mod => unreachable!(), // handled above
                             }
@@ -551,14 +553,14 @@ impl Compiler {
                         ; cmp Rq(lhs as u8), Rq(rhs as u8)
                     ),
                     (Operand::Register(lhs), Operand::Stack(offset)) => dynasm!(ops
-                        ; cmp Rq(lhs as u8), [rsp - offset]
+                        ; cmp Rq(lhs as u8), [rbp - offset]
                     ),
                     (Operand::Stack(offset), Operand::Register(rhs)) => dynasm!(ops
-                        ; cmp [rsp - offset], Rq(rhs as u8)
+                        ; cmp [rbp - offset], Rq(rhs as u8)
                     ),
                     (Operand::Stack(lhs), Operand::Stack(rhs)) => dynasm!(ops
-                        ; mov rax, [rsp - lhs]
-                        ; cmp rax, [rsp - rhs]
+                        ; mov rax, [rbp - lhs]
+                        ; cmp rax, [rbp - rhs]
                     ),
                 }
 
@@ -587,6 +589,19 @@ impl Compiler {
         // prologue
         let entrypoint = ops.offset();
         dynasm!(ops
+            // stack alignment
+            ; push rsp
+            ; push QWORD [rsp]
+            ; and rsp, !0x10 + 1
+            // save non-volatile registers
+            ; push rbx
+            ; push rdi
+            ; push rsi
+            ; push r12
+            ; push r13
+            ; push r14
+            ; push r15
+            // prepare base pointer
             ; push rbp
             ; mov rbp, rsp
         );
@@ -598,7 +613,18 @@ impl Compiler {
 
         // epilogue
         dynasm!(ops
+            // restore base pointer
             ; pop rbp
+            // restore non-volatile registers
+            ; pop r15
+            ; pop r14
+            ; pop r13
+            ; pop r12
+            ; pop rsi
+            ; pop rdi
+            ; pop rbx
+            // restore previous rsp value
+            ; mov rsp, [rsp+8]
         );
 
         // retcode
