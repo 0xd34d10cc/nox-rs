@@ -4,7 +4,7 @@ compile_error!("JIT is implemented only for x86-64");
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use std::io::{self, Write};
+use std::io;
 use std::mem;
 
 use capstone::prelude::*;
@@ -12,41 +12,33 @@ use dynasm::dynasm;
 use dynasmrt::x64::Assembler;
 use dynasmrt::{AssemblyOffset, DynasmApi, ExecutableBuffer};
 
+use crate::context::{InputStream, OutputStream};
 use crate::ops::{LogicOp, Op};
 use crate::sm;
 use crate::types::{Int, Var};
 
 pub struct Runtime {
-    write: extern "win64" fn(Int),
-    read: extern "win64" fn() -> Int,
+    input: Box<dyn InputStream>,
+    output: Box<dyn OutputStream>,
 }
 
 impl Runtime {
-    pub fn stdio() -> Self {
-        extern "win64" fn rt_write(val: Int) {
-            println!("O: {}", val);
-        }
+    unsafe extern "win64" fn read(p: *mut Runtime) -> Int {
+        let rt = &mut *p;
+        rt.input.read().unwrap_or(-1)
+    }
 
-        extern "win64" fn rt_read() -> Int {
-            print!("I: ");
-            io::stdout().flush().ok();
+    unsafe extern "win64" fn write(p: *mut Runtime, val: Int) {
+        let rt = &mut *p;
+        rt.output.write(val as Int)
+    }
 
-            let mut line = String::new();
-            let val = io::stdin()
-                .read_line(&mut line)
-                .ok()
-                .and_then(|_| line.trim().parse::<Int>().ok());
+    pub fn stdio() -> Box<Self> {
+        Runtime::new(Box::new(io::stdin()), Box::new(io::stdout()))
+    }
 
-            match val {
-                None => -1,
-                Some(v) => v,
-            }
-        }
-
-        Runtime {
-            write: rt_write,
-            read: rt_read,
-        }
+    pub fn new(input: Box<dyn InputStream>, output: Box<dyn OutputStream>) -> Box<Self> {
+        Box::new(Runtime { input, output })
     }
 }
 
@@ -54,11 +46,14 @@ pub struct Program {
     memory: ExecutableBuffer,
     globals: Globals,
     entrypoint: AssemblyOffset,
+    // this field here is only for lifetime control
+    #[allow(unused)]
+    runtime: Box<Runtime>,
 }
 
 impl Program {
-    pub fn run(&self) -> i32 {
-        let main_fn: extern "win64" fn() -> i32 =
+    pub fn run(&self) -> i64 {
+        let main_fn: extern "win64" fn() -> i64 =
             unsafe { mem::transmute(self.memory.ptr(self.entrypoint)) };
 
         main_fn()
@@ -98,11 +93,13 @@ impl Program {
         memory: ExecutableBuffer,
         globals: Globals,
         entrypoint: AssemblyOffset,
+        runtime: Box<Runtime>,
     ) -> Self {
         Program {
             memory,
             globals,
             entrypoint,
+            runtime,
         }
     }
 }
@@ -140,13 +137,13 @@ enum Operand {
 
 impl Operand {
     fn store_const(self, c: Int, ops: &mut Assembler) {
-        let c = c as i32; // TODO: check overflow
         match self {
             Operand::Register(r) => dynasm!(ops
-                ; mov Rd(r as u8), c
+                ; mov Rq(r as u8), QWORD c
             ),
             Operand::Stack(offset) => dynasm!(ops
-                ; mov DWORD [rsp - offset], c
+                ; mov rax, QWORD c
+                ; mov QWORD [rsp - offset], rax
             ),
         }
     }
@@ -154,10 +151,10 @@ impl Operand {
     fn store_into(self, register: Register, ops: &mut Assembler) {
         match self {
             Operand::Register(r) => dynasm!(ops
-                ; mov Rd(register as u8), Rd(r as u8)
+                ; mov Rq(register as u8), Rq(r as u8)
             ),
             Operand::Stack(offset) => dynasm!(ops
-                ; mov Rd(register as u8), [rsp - offset]
+                ; mov Rq(register as u8), [rsp - offset]
             ),
         }
     }
@@ -165,34 +162,38 @@ impl Operand {
     fn load_from(self, register: Register, ops: &mut Assembler) {
         match self {
             Operand::Register(r) => dynasm!(ops
-                ; mov Rd(r as u8), Rd(register as u8)
+                ; mov Rq(r as u8), Rq(register as u8)
             ),
             Operand::Stack(offset) => dynasm!(ops
-                ; mov [rsp - offset], Rd(register as u8)
+                ; mov [rsp - offset], Rq(register as u8)
             ),
         }
     }
 
-    fn load_from_memory(self, location: *mut i32, ops: &mut Assembler) {
+    fn load_from_memory(self, location: *mut Int, ops: &mut Assembler) {
         match self {
             Operand::Register(r) => dynasm!(ops
-                ; mov Rd(r as u8), DWORD [location as _]
+                ; mov rax, QWORD location as _
+                ; mov Rq(r as u8), [rax]
             ),
             Operand::Stack(offset) => dynasm!(ops
-                ; mov eax, DWORD [location as _]
-                ; mov [rsp - offset], eax
+                ; mov rax, QWORD location as _
+                ; mov rbx, QWORD [rax]
+                ; mov [rsp - offset], rbx
             ),
         }
     }
 
-    fn store_to_memory(self, location: *mut i32, ops: &mut Assembler) {
+    fn store_to_memory(self, location: *mut Int, ops: &mut Assembler) {
         match self {
             Operand::Register(r) => dynasm!(ops
-                ; mov DWORD [location as _], Rd(r as u8)
+                ; mov rax, QWORD location as _
+                ; mov [rax], Rq(r as u8)
             ),
             Operand::Stack(offset) => dynasm!(ops
-                ; mov eax, [rsp - offset]
-                ; mov DWORD [location as _], eax
+                ; mov rax, QWORD location as _
+                ; mov rbx, [rsp - offset]
+                ; mov [rax], rbx
             ),
         }
     }
@@ -200,7 +201,7 @@ impl Operand {
 
 #[derive(Default, Debug)]
 pub struct Globals {
-    values: Box<[i32]>,
+    values: Box<[Int]>,
     map: HashMap<Var, usize>,
 }
 
@@ -211,7 +212,7 @@ impl fmt::Display for Globals {
             writeln!(
                 f,
                 "{} @ 0x{:x} -> {}",
-                name, &self.values[*index] as *const i32 as usize, self.values[*index]
+                name, &self.values[*index] as *const Int as usize, self.values[*index]
             )?;
         }
         Ok(())
@@ -219,6 +220,12 @@ impl fmt::Display for Globals {
 }
 
 impl Globals {
+    #[cfg(test)]
+    pub fn load(&self, var: &Var) -> Option<Int> {
+        let index = self.map.get(var)?;
+        Some(self.values[*index] as i64)
+    }
+
     fn allocate(program: &sm::Program) -> Result<Globals, Box<dyn Error>> {
         let mut globals = Globals::default();
         let mut index = 0;
@@ -246,9 +253,9 @@ impl Globals {
         Ok(globals)
     }
 
-    fn get_ptr(&mut self, var: &Var) -> Option<*mut i32> {
+    fn get_ptr(&mut self, var: &Var) -> Option<*mut Int> {
         let index = self.map.get(var)?;
-        let ptr = &mut self.values[*index] as *mut i32;
+        let ptr = &mut self.values[*index] as *mut Int;
         Some(ptr)
     }
 }
@@ -257,14 +264,16 @@ struct CompilationContext {
     free_registers: Vec<Register>,
     stack: Vec<Operand>,
     globals: Globals,
+    runtime: Box<Runtime>,
 }
 
 impl CompilationContext {
-    fn new(globals: Globals) -> Self {
+    fn new(globals: Globals, runtime: Box<Runtime>) -> Self {
         CompilationContext {
-            free_registers: vec![Register::R8, Register::R9, Register::R10, Register::R11],
+            free_registers: vec![Register::R10],
             stack: Vec::new(),
             globals,
+            runtime,
         }
     }
 
@@ -290,7 +299,7 @@ impl CompilationContext {
         } else {
             match self.stack.last().expect("Empty stack (allocate)") {
                 Operand::Stack(offset) => Operand::Stack(offset + WORD),
-                _ => Operand::Stack(0),
+                _ => Operand::Stack(WORD),
             }
         };
 
@@ -299,27 +308,25 @@ impl CompilationContext {
     }
 }
 
-pub struct Compiler {
-    runtime: Runtime,
-}
+pub struct Compiler {}
 
 impl Compiler {
-    pub fn new(runtime: Runtime) -> Self {
-        Compiler { runtime }
+    pub fn new() -> Self {
+        Compiler {}
     }
 
     fn div(&mut self, lhs: Operand, rhs: Operand, ops: &mut Assembler) {
         lhs.store_into(Register::RAX, ops);
         dynasm!(ops
-            ; cdq // cltd is alias for cdq
+            ; cqo // sign-extend RAX into RDX:RAX
         );
         match rhs {
             Operand::Register(r) => dynasm!(ops
-                ; idiv Rd(r as u8)
+                ; idiv Rq(r as u8)
             ),
             Operand::Stack(offset) => dynasm!(ops
-                ; mov ebx, [rsp - offset]
-                ; idiv ebx
+                ; mov rbx, [rsp - offset]
+                ; idiv rbx
             ),
         }
     }
@@ -337,19 +344,21 @@ impl Compiler {
             (Operand::Register(lhs), Operand::Register(rhs)) => {
                 let (l, r) = (lhs as u8, rhs as u8);
                 dynasm!(ops
-                    ; test Rd(l), Rd(l)
+                    ; test Rq(l), Rq(l)
                     ; setne Rb(l)
-                    ; test Rd(r), Rd(r)
+                    ; and Rq(1), 0xff
+                    ; test Rq(r), Rq(r)
                     ; setne Rb(r)
+                    ; and Rq(r), 0xff
                 );
 
                 if is_and {
                     dynasm!(ops
-                        ; and Rd(l), Rd(r)
+                        ; and Rq(l), Rq(r)
                     )
                 } else {
                     dynasm!(ops
-                        ; or Rd(l), Rd(r)
+                        ; or Rq(l), Rq(r)
                     )
                 }
 
@@ -361,19 +370,21 @@ impl Compiler {
                 lhs.store_into(Register::RAX, ops);
                 rhs.store_into(Register::RBX, ops);
                 dynasm!(ops
-                    ; test eax, eax
+                    ; test rax, rax
                     ; setne al
-                    ; test ebx, ebx
+                    ; and rax, 0xff
+                    ; test rbx, rbx
                     ; setne bl
+                    ; and rbx, 0xff
                 );
 
                 if is_and {
                     dynasm!(ops
-                        ; and eax, ebx
+                        ; and rax, rbx
                     )
                 } else {
                     dynasm!(ops
-                        ; or eax, ebx
+                        ; or rax, rbx
                     )
                 }
 
@@ -396,16 +407,20 @@ impl Compiler {
             }
             sm::Instruction::Write => {
                 let src = context.pop().ok_or("Empty stack (write)")?;
-                src.store_into(Register::RCX, ops);
+                let rt = &mut *context.runtime as *mut Runtime;
+                src.store_into(Register::RDX, ops);
                 dynasm!(ops
-                    ; mov rax, QWORD self.runtime.write as _
+                    ; mov rcx, QWORD rt as _
+                    ; mov rax, QWORD Runtime::write as _
                     ; call rax
                 )
             }
             sm::Instruction::Read => {
                 let dst = context.allocate();
+                let rt = &mut *context.runtime as *mut Runtime;
                 dynasm!(ops
-                    ; mov rax, QWORD self.runtime.read as _
+                    ; mov rcx, QWORD rt as _
+                    ; mov rax, QWORD Runtime::read as _
                     ; call rax
                 );
                 dst.load_from(Register::RAX, ops);
@@ -446,13 +461,13 @@ impl Compiler {
                         Operand::Register(rhs) => {
                             match op {
                                 Op::Add => dynasm!(ops
-                                    ; add Rd(lhs as u8), Rd(rhs as u8)
+                                    ; add Rq(lhs as u8), Rq(rhs as u8)
                                 ),
                                 Op::Sub => dynasm!(ops
-                                    ; sub Rd(lhs as u8), Rd(rhs as u8)
+                                    ; sub Rq(lhs as u8), Rq(rhs as u8)
                                 ),
                                 Op::Mul => dynasm!(ops
-                                    ; imul Rd(lhs as u8), Rd(rhs as u8)
+                                    ; imul Rq(lhs as u8), Rq(rhs as u8)
                                 ),
                                 Op::Div | Op::Mod => unreachable!(), // handled above
                             }
@@ -460,13 +475,13 @@ impl Compiler {
                         Operand::Stack(offset) => {
                             match op {
                                 Op::Add => dynasm!(ops
-                                    ; add Rd(lhs as u8), [rsp - offset]
+                                    ; add Rq(lhs as u8), [rsp - offset]
                                 ),
                                 Op::Sub => dynasm!(ops
-                                    ; sub Rd(lhs as u8), [rsp - offset]
+                                    ; sub Rq(lhs as u8), [rsp - offset]
                                 ),
                                 Op::Mul => dynasm!(ops
-                                    ; imul Rd(lhs as u8), [rsp - offset]
+                                    ; imul Rq(lhs as u8), [rsp - offset]
                                 ),
                                 Op::Div | Op::Mod => unreachable!(), // handled above
                             }
@@ -500,26 +515,31 @@ impl Compiler {
                 self.and_or(lhs, rhs, false /* is_and */, context, ops);
             }
             sm::Instruction::LogicOp(op) => {
-                let set = |dst: Register, ops: &mut Assembler| match op {
-                    LogicOp::Less => dynasm!(ops
-                        ; setl Rb(dst as u8)
-                    ),
-                    LogicOp::LessOrEqual => dynasm!(ops
-                        ; setle Rb(dst as u8)
-                    ),
-                    LogicOp::Greater => dynasm!(ops
-                        ; setg Rb(dst as u8)
-                    ),
-                    LogicOp::GreaterOrEqual => dynasm!(ops
-                        ; setge Rb(dst as u8)
-                    ),
-                    LogicOp::Eq => dynasm!(ops
-                        ; sete Rb(dst as u8)
-                    ),
-                    LogicOp::NotEq => dynasm!(ops
-                        ; setne Rb(dst as u8)
-                    ),
-                    LogicOp::And | LogicOp::Or => unreachable!(), // covered above
+                let set = |dst: Register, ops: &mut Assembler| {
+                    match op {
+                        LogicOp::Less => dynasm!(ops
+                            ; setl Rb(dst as u8)
+                        ),
+                        LogicOp::LessOrEqual => dynasm!(ops
+                            ; setle Rb(dst as u8)
+                        ),
+                        LogicOp::Greater => dynasm!(ops
+                            ; setg Rb(dst as u8)
+                        ),
+                        LogicOp::GreaterOrEqual => dynasm!(ops
+                            ; setge Rb(dst as u8)
+                        ),
+                        LogicOp::Eq => dynasm!(ops
+                            ; sete Rb(dst as u8)
+                        ),
+                        LogicOp::NotEq => dynasm!(ops
+                            ; setne Rb(dst as u8)
+                        ),
+                        LogicOp::And | LogicOp::Or => unreachable!(), // covered above
+                    };
+                    dynasm!(ops
+                        ; and Rq(dst as u8), 0xff
+                    );
                 };
 
                 let rhs = context.pop().ok_or("Empty stack (logic, rhs)")?;
@@ -528,17 +548,17 @@ impl Compiler {
 
                 match (lhs, rhs) {
                     (Operand::Register(lhs), Operand::Register(rhs)) => dynasm!(ops
-                        ; cmp Rd(lhs as u8), Rd(rhs as u8)
+                        ; cmp Rq(lhs as u8), Rq(rhs as u8)
                     ),
                     (Operand::Register(lhs), Operand::Stack(offset)) => dynasm!(ops
-                        ; cmp Rd(lhs as u8), [rsp - offset]
+                        ; cmp Rq(lhs as u8), [rsp - offset]
                     ),
                     (Operand::Stack(offset), Operand::Register(rhs)) => dynasm!(ops
-                        ; cmp [rsp - offset], Rd(rhs as u8)
+                        ; cmp [rsp - offset], Rq(rhs as u8)
                     ),
                     (Operand::Stack(lhs), Operand::Stack(rhs)) => dynasm!(ops
-                        ; mov eax, [rsp - lhs]
-                        ; cmp eax, [rsp - rhs]
+                        ; mov rax, [rsp - lhs]
+                        ; cmp rax, [rsp - rhs]
                     ),
                 }
 
@@ -554,11 +574,15 @@ impl Compiler {
         Ok(())
     }
 
-    pub fn compile(&mut self, program: &sm::Program) -> Result<Program, Box<dyn Error>> {
+    pub fn compile(
+        &mut self,
+        program: &sm::Program,
+        runtime: Box<Runtime>,
+    ) -> Result<Program, Box<dyn Error>> {
         let mut ops = Assembler::new().unwrap();
 
         let globals = Globals::allocate(program)?;
-        let mut context = CompilationContext::new(globals);
+        let mut context = CompilationContext::new(globals, runtime);
 
         // prologue
         let entrypoint = ops.offset();
@@ -579,7 +603,7 @@ impl Compiler {
 
         // retcode
         dynasm!(ops
-            ; mov eax, 0
+            ; mov rax, 0
             ; ret
         );
 
@@ -587,6 +611,6 @@ impl Compiler {
         let memory = ops
             .finalize()
             .expect("finalize() shouldn't fail if commit() was called before");
-        Ok(unsafe { Program::from_parts(memory, context.globals, entrypoint) })
+        Ok(unsafe { Program::from_parts(memory, context.globals, entrypoint, context.runtime) })
     }
 }

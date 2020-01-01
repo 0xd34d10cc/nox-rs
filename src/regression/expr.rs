@@ -40,6 +40,15 @@ fn eval(expr: Expr, context: &Context) -> Int {
     assert_eq!(machine.pop(), None); // stack should be empty
     assert_eq!(s, sm);
 
+    // then via JIT
+    let program = crate::jit::Compiler::new()
+        .compile(&program, crate::jit::Runtime::stdio())
+        .unwrap();
+    let retcode = program.run();
+    let jit = program.globals().load(&Var::from("RESULT"));
+    assert_eq!(retcode, 0);
+    assert_eq!(jit, Some(sm));
+
     sm
 }
 

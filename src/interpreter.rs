@@ -1,15 +1,15 @@
 use std::error::Error;
-use std::io::{self, Write};
+use std::io::{self, Stdin, Stdout};
 
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-use crate::context::{Env, InputStream, OutputStream};
+use crate::context::Env;
 use crate::expr::Expr;
 use crate::jit::{self, Runtime};
 use crate::sm;
 use crate::statement;
-use crate::types::{Int, Var};
+use crate::types::Var;
 use crate::x86;
 
 pub enum InputLine {
@@ -45,33 +45,14 @@ impl InputLine {
     }
 }
 
-struct ProgramInput;
-impl InputStream for ProgramInput {
-    fn read(&mut self) -> Option<Int> {
-        print!("I: ");
-        io::stdout().flush().ok()?;
-
-        let mut line = String::new();
-        io::stdin().read_line(&mut line).ok()?;
-        line.trim().parse::<Int>().ok()
-    }
-}
-
-struct ProgramOutput;
-impl OutputStream for ProgramOutput {
-    fn write(&mut self, value: Int) {
-        println!("O: {}", value);
-    }
-}
-
 pub struct Interpreter {
-    context: (Env, ProgramInput, ProgramOutput),
+    context: (Env, Stdin, Stdout),
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
-            context: (Env::new(), ProgramInput, ProgramOutput),
+            context: (Env::new(), io::stdin(), io::stdout()),
         }
     }
 
@@ -109,20 +90,20 @@ impl Interpreter {
             }
             InputLine::ShowJITAsm(p) => {
                 let p = sm::compile(&p);
-                let p = jit::Compiler::new(Runtime::stdio()).compile(&p)?;
-                println!("Env:\n{}", p.globals());
+                let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
+                println!("Memory map:\n{}", p.globals());
                 for instruction in p.disassemble() {
                     println!("{}", instruction);
                 }
             }
             InputLine::RunJIT(p) => {
                 let p = sm::compile(&p);
-                let p = jit::Compiler::new(Runtime::stdio()).compile(&p)?;
+                let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
                 let retcode = p.run();
                 if retcode != 0 {
                     println!("Failure: {}", retcode);
                 }
-                println!("Env:\n{}", p.globals());
+                println!("Memory map after execution:\n{}", p.globals());
             }
         }
 
