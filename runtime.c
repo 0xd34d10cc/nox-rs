@@ -7,7 +7,7 @@ extern int32_t nox_rt_write(int32_t i) {
 }
 
 extern int32_t nox_rt_read() {
-  int32_t val;
+  int32_t val = -1;
   scanf("%d", &val);
   return val;
 }

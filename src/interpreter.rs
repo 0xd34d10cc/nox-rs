@@ -6,6 +6,7 @@ use rustyline::Editor;
 
 use crate::context::{Env, InputStream, OutputStream};
 use crate::expr::Expr;
+use crate::jit::{self, Runtime};
 use crate::sm;
 use crate::statement;
 use crate::types::{Int, Var};
@@ -26,6 +27,9 @@ pub enum InputLine {
     RunSMInstructions(statement::Program),
 
     ShowAsm(statement::Program),
+
+    ShowJITAsm(statement::Program),
+    RunJIT(statement::Program),
 }
 
 impl InputLine {
@@ -103,6 +107,23 @@ impl Interpreter {
                 let p = x86::Compiler::new().compile(&p)?;
                 println!("{}", p);
             }
+            InputLine::ShowJITAsm(p) => {
+                let p = sm::compile(&p);
+                let p = jit::Compiler::new(Runtime::stdio()).compile(&p)?;
+                println!("Env:\n{}", p.globals());
+                for instruction in p.disassemble() {
+                    println!("{}", instruction);
+                }
+            }
+            InputLine::RunJIT(p) => {
+                let p = sm::compile(&p);
+                let p = jit::Compiler::new(Runtime::stdio()).compile(&p)?;
+                let retcode = p.run();
+                if retcode != 0 {
+                    println!("Failure: {}", retcode);
+                }
+                println!("Env:\n{}", p.globals());
+            }
         }
 
         Ok(())
@@ -151,6 +172,7 @@ mod parse {
     // Input ::= Delete     | Reset     | ShowEnv | RunExpr
     //         | ShowExpr   | RunStmt   | ShowStmt
     //         | ShowSMInsn | RunSMInsn | ShowAsm
+    //         | ShowJITAsm | RunJIT
     // Delete ::= ':del' Var
     // Reset ::= ':reset'
     // ShowEnv ::= ':env'
@@ -159,6 +181,8 @@ mod parse {
     // RunStmt ::= ':rs' Statements | Statements
     // ShowStmt ::= ':ss' Statements
     // ShowAsm ::= ':asm' Statements
+    // ShowJITAsm ::= :sj Statements
+    // RunJIT ::= :rj Statements
 
     use super::*;
     use crate::expr::parse::expr;
@@ -186,6 +210,8 @@ mod parse {
             run_statements,
             show_statements,
             show_asm,
+            show_jit_asm,
+            run_jit,
             just_statements,
             just_expression,
         ))(input)
@@ -249,5 +275,15 @@ mod parse {
     fn show_asm(input: &[u8]) -> IResult<&[u8], InputLine> {
         let (rest, (_, _, p)) = tuple((tag(":asm"), spaces, program))(input)?;
         Ok((rest, InputLine::ShowAsm(p)))
+    }
+
+    fn show_jit_asm(input: &[u8]) -> IResult<&[u8], InputLine> {
+        let (rest, (_, _, p)) = tuple((tag(":sj"), spaces, program))(input)?;
+        Ok((rest, InputLine::ShowJITAsm(p)))
+    }
+
+    fn run_jit(input: &[u8]) -> IResult<&[u8], InputLine> {
+        let (rest, (_, _, p)) = tuple((tag(":rj"), spaces, program))(input)?;
+        Ok((rest, InputLine::RunJIT(p)))
     }
 }

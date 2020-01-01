@@ -1,6 +1,9 @@
+#![feature(proc_macro_hygiene)] // for dynasm
+
 mod context;
 mod expr;
 mod interpreter;
+mod jit;
 mod ops;
 #[cfg(test)]
 mod regression;
