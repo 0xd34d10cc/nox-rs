@@ -175,9 +175,10 @@ mod parse {
     use crate::statement::parse::program;
     use crate::types::parse::variable;
 
+    use nom::combinator::map;
     use nom::branch::alt;
     use nom::bytes::complete::{tag, take_while};
-    use nom::sequence::tuple;
+    use nom::sequence::preceded;
     use nom::IResult;
 
     fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
@@ -186,90 +187,26 @@ mod parse {
 
     pub fn input_line(input: &[u8]) -> IResult<&[u8], InputLine> {
         alt((
-            delete,
-            reset,
-            show_env,
-            run_expr,
-            show_expr,
-            show_sm_instructions,
-            run_sm_instructions,
-            run_statements,
-            show_statements,
-            show_asm,
-            show_jit_asm,
-            run_jit,
-            just_statements,
-            just_expression,
+            command(":del", map(variable, InputLine::Delete)),
+            command(":reset", map(spaces, |_| InputLine::ResetEnv)),
+            command(":env", map(spaces, |_| InputLine::ShowEnv)),
+            command(":re", map(expr, InputLine::RunExpr)),
+            command(":se", map(expr, InputLine::ShowExpr)),
+            command(":rsm", map(program, InputLine::RunSMInstructions)),
+            command(":ssm", map(program, InputLine::ShowSMInstructions)),
+            command(":rs", map(program, InputLine::RunStatements)),
+            command(":ss", map(program, InputLine::ShowStatements)),
+            command(":asm", map(program, InputLine::ShowAsm)),
+            command(":rj", map(program, InputLine::RunJIT)),
+            command(":sj", map(program, InputLine::ShowJITAsm)),
+            map(program, InputLine::RunStatements),
+            map(expr, InputLine::RunExpr),
         ))(input)
     }
 
-    fn delete(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, var)) = tuple((tag(":del"), spaces, variable))(input)?;
-        Ok((rest, InputLine::Delete(var)))
-    }
-
-    fn reset(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, _) = tag(":reset")(input)?;
-        Ok((rest, InputLine::ResetEnv))
-    }
-
-    fn show_env(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, _) = tag(":env")(input)?;
-        Ok((rest, InputLine::ShowEnv))
-    }
-
-    fn run_expr(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, e)) = tuple((tag(":re"), spaces, expr))(input)?;
-        Ok((rest, InputLine::RunExpr(e)))
-    }
-
-    fn just_expression(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, e) = expr(input)?;
-        Ok((rest, InputLine::RunExpr(e)))
-    }
-
-    fn show_expr(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, e)) = tuple((tag(":se"), spaces, expr))(input)?;
-        Ok((rest, InputLine::ShowExpr(e)))
-    }
-
-    fn run_statements(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, p)) = tuple((tag(":rs"), spaces, program))(input)?;
-        Ok((rest, InputLine::RunStatements(p)))
-    }
-
-    fn just_statements(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, p) = program(input)?;
-        Ok((rest, InputLine::RunStatements(p)))
-    }
-
-    fn show_statements(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, p)) = tuple((tag(":ss"), spaces, program))(input)?;
-        Ok((rest, InputLine::ShowStatements(p)))
-    }
-
-    fn show_sm_instructions(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, p)) = tuple((tag(":ssm"), spaces, program))(input)?;
-        Ok((rest, InputLine::ShowSMInstructions(p)))
-    }
-
-    fn run_sm_instructions(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, p)) = tuple((tag(":rsm"), spaces, program))(input)?;
-        Ok((rest, InputLine::RunSMInstructions(p)))
-    }
-
-    fn show_asm(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, p)) = tuple((tag(":asm"), spaces, program))(input)?;
-        Ok((rest, InputLine::ShowAsm(p)))
-    }
-
-    fn show_jit_asm(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, p)) = tuple((tag(":sj"), spaces, program))(input)?;
-        Ok((rest, InputLine::ShowJITAsm(p)))
-    }
-
-    fn run_jit(input: &[u8]) -> IResult<&[u8], InputLine> {
-        let (rest, (_, _, p)) = tuple((tag(":rj"), spaces, program))(input)?;
-        Ok((rest, InputLine::RunJIT(p)))
+    fn command<'a, P>(prefix: &'a str, parser: P) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], InputLine>
+        where P: Fn(&'a [u8]) -> IResult<&'a [u8], InputLine>
+    {
+        preceded(tag(prefix), parser)
     }
 }
