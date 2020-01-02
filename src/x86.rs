@@ -81,8 +81,9 @@ impl Display for Operand {
     }
 }
 
+
 #[derive(Debug, Clone, Copy)]
-enum Condition {
+pub enum Condition {
     Less,
     LessOrEqual,
     Greater,
@@ -91,7 +92,21 @@ enum Condition {
     NotEq,
 }
 
-impl Display for Condition {
+impl Condition {
+    pub fn from_op(op: LogicOp) -> Option<Condition> {
+        match op {
+            LogicOp::Less => Some(Condition::Less),
+            LogicOp::LessOrEqual => Some(Condition::LessOrEqual),
+            LogicOp::Greater => Some(Condition::Greater),
+            LogicOp::GreaterOrEqual => Some(Condition::GreaterOrEqual),
+            LogicOp::Eq => Some(Condition::Eq),
+            LogicOp::NotEq => Some(Condition::NotEq),
+            LogicOp::And | LogicOp::Or => None,
+        }
+    }
+}
+
+impl fmt::Display for Condition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let suffix = match self {
             Condition::Less => "l",
@@ -105,6 +120,7 @@ impl Display for Condition {
         write!(f, "{}", suffix)
     }
 }
+
 
 #[derive(Debug, Clone)]
 enum Instruction {
@@ -242,6 +258,7 @@ impl Compiler {
         let text = &mut program.text;
         let mut push = |instruction| text.push((instruction, comment.clone()));
         match instruction {
+            sm::Instruction::Label(_) | sm::Instruction::Jump(_) | sm::Instruction::JumpIfZero(_) | sm::Instruction::JumpIfNotZero(_) => todo!(),
             sm::Instruction::Const(n) => {
                 let op = self.allocate();
                 push(Instruction::Mov(op, Operand::Literal(*n)));
@@ -392,15 +409,7 @@ impl Compiler {
                 push(Instruction::Mov(dst, Operand::Register(Register::EDX)));
             }
             sm::Instruction::LogicOp(op) => {
-                let condition = match op {
-                    LogicOp::Less => Condition::Less,
-                    LogicOp::LessOrEqual => Condition::LessOrEqual,
-                    LogicOp::Greater => Condition::Greater,
-                    LogicOp::GreaterOrEqual => Condition::GreaterOrEqual,
-                    LogicOp::Eq => Condition::Eq,
-                    LogicOp::NotEq => Condition::NotEq,
-                    LogicOp::And | LogicOp::Or => unreachable!(), // handled above
-                };
+                let condition = Condition::from_op(*op).expect("Unexpected logic op");
 
                 let rhs = self.pop().ok_or("Empty stack (comparison, rhs)")?;
                 let lhs = self.pop().ok_or("Empty stack (comparison, lhs)")?;
@@ -433,7 +442,7 @@ impl Compiler {
     pub fn compile(&mut self, source: &sm::Program) -> Result<Program, Box<dyn Error>> {
         let mut program = Program::default();
         // actual code
-        for instruction in source {
+        for instruction in source.instructions() {
             self.compile_instruction(&mut program, instruction)?;
         }
 
