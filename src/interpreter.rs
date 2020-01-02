@@ -175,9 +175,9 @@ mod parse {
     use crate::statement::parse::program;
     use crate::types::parse::variable;
 
-    use nom::combinator::map;
     use nom::branch::alt;
     use nom::bytes::complete::{tag, take_while};
+    use nom::combinator::map;
     use nom::sequence::preceded;
     use nom::IResult;
 
@@ -204,8 +204,12 @@ mod parse {
         ))(input)
     }
 
-    fn command<'a, P>(prefix: &'a str, parser: P) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], InputLine>
-        where P: Fn(&'a [u8]) -> IResult<&'a [u8], InputLine>
+    fn command<'a, P>(
+        prefix: &'a str,
+        parser: P,
+    ) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], InputLine>
+    where
+        P: Fn(&'a [u8]) -> IResult<&'a [u8], InputLine>,
     {
         preceded(tag(prefix), parser)
     }
