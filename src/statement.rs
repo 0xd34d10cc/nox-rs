@@ -6,6 +6,16 @@ use crate::types::Var;
 
 #[derive(Debug, Clone)]
 pub enum Statement {
+    Skip,
+    IfElse {
+        condition: Expr,
+        if_true: Vec<Statement>,
+        if_false: Vec<Statement>, // <- all elif's are here
+    },
+    While {
+        condition: Expr,
+        body: Vec<Statement>,
+    },
     Assign(Var, Expr),
     Read(Var),
     Write(Expr),
@@ -17,6 +27,24 @@ impl Statement {
         C: ExecutionContext,
     {
         match self {
+            Statement::Skip => { /* do nothing */ }
+            Statement::IfElse {
+                condition,
+                if_true,
+                if_false,
+            } => {
+                let c = condition.eval(context)?;
+                if c != 0 {
+                    run(if_true, context)?;
+                } else {
+                    run(if_false, context)?;
+                }
+            }
+            Statement::While { condition, body } => {
+                while condition.eval(context)? != 0 {
+                    run(body, context)?;
+                }
+            }
             Statement::Assign(name, value) => {
                 let value = value.eval(context)?;
                 context.set(name, value);
@@ -72,8 +100,12 @@ where
 }
 
 pub mod parse {
-    // Program ::= Statement (';' Statement)*
-    // Statement ::= Assign | Read | Write
+    // Program ::= Statements
+    // Statements ::= Statement (';' Statement)*
+    // Statement ::= Skip | IfElse | While | Assign | Read | Write
+    // Skip ::= 'skip'
+    // IfElse ::= 'if' Expr 'then' Statements  ('elif' Expr 'then' Statements)* ['else' Statements] 'fi'
+    // While ::= 'while' Expr 'do' Statements 'od'
     // Assign ::= Var '=' Expr
     // Read ::= 'read(' Var ')'
     // Write ::= 'write(' Expr ')'
@@ -85,7 +117,8 @@ pub mod parse {
 
     use nom::branch::alt;
     use nom::bytes::complete::{tag, take_while};
-    use nom::multi::fold_many0;
+    use nom::combinator::{map, opt};
+    use nom::multi::{fold_many0, many0};
     use nom::sequence::tuple;
     use nom::IResult;
 
@@ -94,6 +127,10 @@ pub mod parse {
     }
 
     pub fn program(input: &[u8]) -> IResult<&[u8], Program> {
+        statements(input)
+    }
+
+    fn statements(input: &[u8]) -> IResult<&[u8], Vec<Statement>> {
         let (input, _) = spaces(input)?;
         let (input, first) = statement(input)?;
         fold_many0(
@@ -107,24 +144,100 @@ pub mod parse {
     }
 
     fn statement(input: &[u8]) -> IResult<&[u8], Statement> {
-        alt((assign, read, write))(input)
+        alt((skip, while_, if_else, assign, read, write))(input)
+    }
+
+    fn skip(input: &[u8]) -> IResult<&[u8], Statement> {
+        map(tag("skip"), |_| Statement::Skip)(input)
+    }
+
+    fn if_else(input: &[u8]) -> IResult<&[u8], Statement> {
+        let (input, (_, root_condition, _, _, if_true)) =
+            tuple((tag("if"), expr, spaces, tag("then"), statements))(input)?;
+
+        let (input, mut elifs) = many0(elif)(input)?;
+        let (input, else_) = opt(else_)(input)?;
+        let (input, _) = tuple((spaces, tag("fi")))(input)?;
+
+        // build if-else chain
+        let if_else = if let Some((condition, body)) = elifs.pop() {
+            let mut root = Statement::IfElse {
+                condition: condition,
+                if_true: body,
+                if_false: else_.unwrap_or_default(),
+            };
+
+            for (condition, body) in elifs.into_iter().rev() {
+                root = Statement::IfElse {
+                    condition,
+                    if_true: body,
+                    if_false: vec![root],
+                };
+            }
+
+            Statement::IfElse {
+                condition: root_condition,
+                if_true: if_true,
+                if_false: vec![root],
+            }
+        } else {
+            // simple case
+            Statement::IfElse {
+                condition: root_condition,
+                if_true,
+                if_false: else_.unwrap_or_default(),
+            }
+        };
+
+        Ok((input, if_else))
+    }
+
+    fn elif(input: &[u8]) -> IResult<&[u8], (Expr, Vec<Statement>)> {
+        let (input, (_, _, _, condition, _, _, body)) = tuple((
+            spaces,
+            tag("elif"),
+            spaces,
+            expr,
+            spaces,
+            tag("then"),
+            statements,
+        ))(input)?;
+        Ok((input, (condition, body)))
+    }
+
+    fn else_(input: &[u8]) -> IResult<&[u8], Vec<Statement>> {
+        let (input, (_, _, _, body)) = tuple((spaces, tag("else"), spaces, statements))(input)?;
+        Ok((input, body))
+    }
+
+    fn while_(input: &[u8]) -> IResult<&[u8], Statement> {
+        let (input, (_, condition, _, _, body, _, _)) = tuple((
+            tag("while"),
+            expr,
+            spaces,
+            tag("do"),
+            statements,
+            spaces,
+            tag("od"),
+        ))(input)?;
+        Ok((input, Statement::While { condition, body }))
     }
 
     fn assign(input: &[u8]) -> IResult<&[u8], Statement> {
-        let (rest, (var, _, _, _, expr)) =
+        let (input, (var, _, _, _, expr)) =
             tuple((variable, spaces, tag(":="), spaces, expr))(input)?;
-        Ok((rest, Statement::Assign(var, expr)))
+        Ok((input, Statement::Assign(var, expr)))
     }
 
     fn read(input: &[u8]) -> IResult<&[u8], Statement> {
-        let (rest, (_, _, _, var, _)) =
+        let (input, (_, _, _, var, _)) =
             tuple((tag("read"), spaces, tag("("), variable, tag(")")))(input)?;
-        Ok((rest, Statement::Read(var)))
+        Ok((input, Statement::Read(var)))
     }
 
     fn write(input: &[u8]) -> IResult<&[u8], Statement> {
-        let (rest, (_, _, _, e, _)) =
+        let (input, (_, _, _, e, _)) =
             tuple((tag("write"), spaces, tag("("), expr, tag(")")))(input)?;
-        Ok((rest, Statement::Write(e)))
+        Ok((input, Statement::Write(e)))
     }
 }
