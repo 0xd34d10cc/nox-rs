@@ -86,7 +86,7 @@ pub mod parse {
     use nom::bytes::complete::{tag, take_while};
     use nom::combinator::{map, opt};
     use nom::multi::fold_many0;
-    use nom::sequence::tuple;
+    use nom::sequence::{preceded, tuple};
     use nom::IResult;
 
     fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
@@ -211,6 +211,6 @@ pub mod parse {
     }
 
     pub fn expr(input: &[u8]) -> IResult<&[u8], Expr> {
-        disjunction(input)
+        preceded(spaces, disjunction)(input)
     }
 }

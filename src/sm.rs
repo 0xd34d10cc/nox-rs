@@ -44,6 +44,9 @@ pub fn compile(statements: &statement::Program) -> Program {
 
     for statement in statements {
         match statement {
+            Statement::Skip => { /* do nothing, successfully */ }
+            Statement::IfElse { .. } => todo!(),
+            Statement::While { .. } => todo!(),
             Statement::Read(var) => {
                 program.push(Instruction::Read);
                 program.push(Instruction::Store(var.clone()));

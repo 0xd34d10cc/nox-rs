@@ -8,7 +8,7 @@ use crate::context::Env;
 use crate::expr::Expr;
 use crate::jit::{self, Runtime};
 use crate::sm;
-use crate::statement;
+use crate::statement::{self, Statement};
 use crate::types::Var;
 use crate::x86;
 
@@ -69,7 +69,12 @@ impl Interpreter {
             InputLine::RunExpr(e) => println!("{}", e.eval(&self.context.0)?),
             InputLine::ShowStatements(p) => {
                 for statement in p {
-                    println!("{:?}", statement);
+                    match statement {
+                        Statement::IfElse { .. } | Statement::While { .. } => {
+                            println!("{:#?}", statement)
+                        }
+                        _ => println!("{:?}", statement),
+                    };
                 }
             }
             InputLine::RunStatements(p) => statement::run(&p, &mut self.context)?,
