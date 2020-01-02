@@ -67,7 +67,7 @@ fn compile(file: &Path, target: Target) -> Result<(), Box<dyn Error>> {
 
     let program = sm::compile(&program);
     if let Target::StackMachine = target {
-        for instruction in program {
+        for instruction in program.instructions() {
             println!("{:?}", instruction);
         }
         return Ok(());

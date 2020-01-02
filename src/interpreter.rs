@@ -79,7 +79,7 @@ impl Interpreter {
             }
             InputLine::RunStatements(p) => statement::run(&p, &mut self.context)?,
             InputLine::ShowSMInstructions(p) => {
-                for instruction in sm::compile(&p) {
+                for instruction in sm::compile(&p).instructions() {
                     println!("{:?}", instruction)
                 }
             }

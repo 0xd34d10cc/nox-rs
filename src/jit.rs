@@ -230,7 +230,7 @@ impl Globals {
         let mut globals = Globals::default();
         let mut index = 0;
 
-        for instruction in program {
+        for instruction in program.instructions() {
             match instruction {
                 sm::Instruction::Store(var) => {
                     globals.map.insert(var.clone(), index);
@@ -401,6 +401,7 @@ impl Compiler {
         instruction: &sm::Instruction,
     ) -> Result<(), Box<dyn Error>> {
         match instruction {
+            sm::Instruction::Label(_) | sm::Instruction::Jump(_) | sm::Instruction::JumpIfZero(_) | sm::Instruction::JumpIfNotZero(_) => todo!(),
             sm::Instruction::Const(c) => {
                 let dst = context.allocate();
                 dst.store_const(*c, ops);
@@ -608,7 +609,7 @@ impl Compiler {
         );
 
         // actual code
-        for instruction in program {
+        for instruction in program.instructions() {
             self.compile_instruction(&mut ops, &mut context, instruction)?;
         }
 
