@@ -62,7 +62,7 @@ impl OutputStream for SharedOutput {
 }
 
 pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
-    let program = statement::parse(program.as_bytes()).unwrap();
+    let program = statement::parse(program.trim().as_bytes()).unwrap();
     let inputs = stdin.iter().rev().cloned().collect::<Vec<Int>>();
     let mut context = (Env::new(), inputs.clone(), Vec::new());
     statement::run(&program, &mut context).unwrap();

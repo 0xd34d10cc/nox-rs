@@ -9,9 +9,8 @@ pub mod parse {
 
     pub fn is_keyword(s: &str) -> bool {
         match s {
-            "if" | "fi" | "elif" | "else" | "do" | "od" | "while" | "skip" | "write" | "read" => {
-                true
-            }
+            "if" | "fi" | "elif" | "else" | "do" | "od" | "while" | "for" | "repeat" | "until"
+            | "skip" | "write" | "read" => true,
             _ => false,
         }
     }
