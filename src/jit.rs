@@ -10,7 +10,7 @@ use std::mem;
 use capstone::prelude::*;
 use dynasm::dynasm;
 use dynasmrt::x64::Assembler;
-use dynasmrt::{AssemblyOffset, DynasmApi, ExecutableBuffer};
+use dynasmrt::{AssemblyOffset, DynasmApi, DynasmLabelApi, ExecutableBuffer, DynamicLabel};
 
 use crate::context::{InputStream, OutputStream};
 use crate::ops::{LogicOp, Op};
@@ -73,7 +73,7 @@ impl Program {
         debug_assert!(entry >= begin);
 
         let offset = entry - begin;
-        let base_address = 0x1000;
+        let base_address = entry as u64;
 
         let instructions = cs
             .disasm_all(&self.memory[offset..], base_address)
@@ -265,6 +265,7 @@ struct CompilationContext {
     stack: Vec<Operand>,
     globals: Globals,
     runtime: Box<Runtime>,
+    labels: HashMap<sm::Label, DynamicLabel>
 }
 
 impl CompilationContext {
@@ -274,6 +275,7 @@ impl CompilationContext {
             stack: Vec::new(),
             globals,
             runtime,
+            labels: HashMap::new()
         }
     }
 
@@ -305,6 +307,16 @@ impl CompilationContext {
 
         self.push(op);
         op
+    }
+
+    fn dyn_label(&mut self, label: sm::Label, ops: &mut Assembler) -> DynamicLabel {
+        self.labels.get(&label)
+            .cloned()
+            .unwrap_or_else(|| {
+                let dyn_label = ops.new_dynamic_label();
+                self.labels.insert(label, dyn_label);
+                dyn_label
+            })
     }
 }
 
@@ -401,7 +413,54 @@ impl Compiler {
         instruction: &sm::Instruction,
     ) -> Result<(), Box<dyn Error>> {
         match instruction {
-            sm::Instruction::Label(_) | sm::Instruction::Jump(_) | sm::Instruction::JumpIfZero(_) | sm::Instruction::JumpIfNotZero(_) => todo!(),
+            sm::Instruction::Label(label) => {
+                let offset = ops.offset();
+                let dyn_label = context.dyn_label(*label, ops);
+                ops.labels_mut().define_dynamic(dyn_label, offset)?;
+            }
+            sm::Instruction::Jump(label) => {
+                let dyn_label = context.dyn_label(*label, ops);
+                dynasm!(ops
+                    ; jmp =>dyn_label
+                );
+            }
+            sm::Instruction::JumpIfZero(label) => {
+                let dyn_label = context.dyn_label(*label, ops);
+                let top = context.pop().ok_or("Empty stack (jz)")?;
+                match top {
+                    Operand::Register(r) => dynasm!(ops
+                        ; test Rq(r as u8), Rq(r as u8)
+                    ),
+                    Operand::Stack(_) => {
+                        top.store_into(Register::RAX, ops);
+                        dynasm!(ops
+                            ; test rax, rax
+                        )
+                    }
+                };
+                dynasm!(ops
+                    ; jz =>dyn_label
+                )
+
+            }
+            sm::Instruction::JumpIfNotZero(label) => {
+                let dyn_label = context.dyn_label(*label, ops);
+                let top = context.pop().ok_or("Empty stack (jnz)")?;
+                match top {
+                    Operand::Register(r) => dynasm!(ops
+                        ; test Rq(r as u8), Rq(r as u8)
+                    ),
+                    Operand::Stack(_) => {
+                        top.store_into(Register::RAX, ops);
+                        dynasm!(ops
+                            ; test rax, rax
+                        )
+                    }
+                };
+                dynasm!(ops
+                    ; jnz =>dyn_label
+                )
+            },
             sm::Instruction::Const(c) => {
                 let dst = context.allocate();
                 dst.store_const(*c, ops);
