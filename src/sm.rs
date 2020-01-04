@@ -122,14 +122,22 @@ impl CompilationContext {
                     program.push(Instruction::Label(end_label));
                 }
                 Statement::While { condition, body } => {
-                    let body_label = self.gen_label();
                     let condition_label = self.gen_label();
-
                     program.push(Instruction::Jump(condition_label));
 
+                    let body_label = self.gen_label();
                     program.push(Instruction::Label(body_label));
                     self.compile_into(body, program);
+
                     program.push(Instruction::Label(condition_label));
+                    self.compile_expr(condition, program);
+                    program.push(Instruction::JumpIfNotZero(body_label));
+                },
+                Statement::DoWhile { body, condition } => {
+                    let body_label = self.gen_label();
+                    program.push(Instruction::Label(body_label));
+
+                    self.compile_into(body, program);
                     self.compile_expr(condition, program);
                     program.push(Instruction::JumpIfNotZero(body_label));
                 }
