@@ -17,6 +17,10 @@ pub enum Statement {
         condition: Expr,
         body: Vec<Statement>,
     },
+    DoWhile {
+        body: Vec<Statement>,
+        condition: Expr,
+    },
     Assign(Var, Expr),
     Read(Var),
     Write(Expr),
@@ -44,6 +48,14 @@ impl Statement {
             Statement::While { condition, body } => {
                 while condition.eval(context)? != 0 {
                     run(body, context)?;
+                }
+            },
+            Statement::DoWhile { body, condition } => {
+                loop {
+                    run(body, context)?;
+                    if condition.eval(context)? == 0 {
+                        break;
+                    }
                 }
             }
             Statement::Assign(name, value) => {
@@ -108,12 +120,14 @@ pub mod parse {
     // IfElse ::= 'if' Expr 'then' Statements  ('elif' Expr 'then' Statements)* ['else' Statements] 'fi'
     // While ::= 'while' Expr 'do' Statements 'od'
     // For ::= 'for' Statement ',' Expr ',' Statement 'do' Statements 'od'
+    // RepeatUntil ::= 'repeat' Statements 'until' Expr
     // Assign ::= Var '=' Expr
     // Read ::= 'read(' Var ')'
     // Write ::= 'write(' Expr ')'
     // Var ::= Char+
 
     use super::{Expr, Program, Var};
+    use crate::ops::LogicOp;
     use crate::expr::parse::expr;
     use crate::types::parse::variable;
 
@@ -142,6 +156,10 @@ pub mod parse {
             condition: Expr,
             post_step: Box<Statement>,
             body: Vec<Statement>,
+        },
+        RepeatUntil {
+            body: Vec<Statement>,
+            condition: Expr,
         },
         Assign(Var, Expr),
         Read(Var),
@@ -188,7 +206,12 @@ pub mod parse {
                     condition,
                     body: convert(body),
                 })
-            }
+            },
+            Statement::RepeatUntil { body, condition } => program.push(super::Statement::DoWhile {
+                body: convert(body),
+                // until == while condition is false
+                condition: Expr::LogicOp(LogicOp::Eq, Box::new(condition), Box::new(Expr::Const(0)))
+            }),
             Statement::Assign(to, from) => program.push(super::Statement::Assign(to, from)),
             Statement::Read(into) => program.push(super::Statement::Read(into)),
             Statement::Write(e) => program.push(super::Statement::Write(e)),
@@ -214,7 +237,7 @@ pub mod parse {
     fn statement(input: &[u8]) -> IResult<&[u8], Statement> {
         preceded(
             spaces,
-            alt((skip, while_, for_, if_else, assign, read, write)),
+            alt((skip, while_, for_, repeat_until, if_else, assign, read, write)),
         )(input)
     }
 
@@ -246,6 +269,12 @@ pub mod parse {
                 body,
             },
         ))
+    }
+
+    fn repeat_until(input: &[u8]) -> IResult<&[u8], Statement> {
+        let (input, body) = preceded(key("repeat"), statements)(input)?;
+        let (input, condition) = preceded(key("until"), expr)(input)?;
+        Ok((input, Statement::RepeatUntil { body, condition }))
     }
 
     fn if_else(input: &[u8]) -> IResult<&[u8], Statement> {
