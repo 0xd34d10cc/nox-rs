@@ -129,3 +129,362 @@ fn test008() {
         0,
     );
 }
+
+#[test]
+fn test009() {
+    run(
+        "
+        n := 2;
+        k := 10;
+        res := 1;
+        while k > 0 do
+          res := res * n;
+          k := k - 1
+        od;
+        write(res)
+        ",
+        &[],
+        &[1024],
+        0,
+    );
+}
+
+#[test]
+fn test010() {
+    run(
+        "
+        i := 0;
+        s := 0;
+        while i < 100
+        do
+            j := 0;
+            while j < 100
+            do
+              s := s + j;
+              j := j + 1
+            od;
+            s := s + i;
+            i := i + 1
+        od;
+        write (s)
+        ",
+        &[],
+        &[499950],
+        0,
+    );
+}
+
+#[test]
+fn test011() {
+    run(
+        "
+        x:=0;
+        if x
+        then write(1)
+        else write(2)
+        fi
+        ",
+        &[],
+        &[2],
+        0,
+    );
+}
+
+#[test]
+fn test012() {
+    run(
+        "
+        read (n);
+        while n >= 0 do
+          if n > 1
+          then
+            write (0);
+            if n == 3 then write (0) else write (1) fi
+          else
+            write (1);
+            if n > 0 then write (0) else write (1) fi
+          fi;
+          n := n - 1
+        od
+        ",
+        &[3],
+        &[0, 0, 0, 1, 1, 0, 1, 1],
+        1,
+    );
+}
+
+#[test]
+fn test013() {
+    run(
+        "
+        read (n);
+        repeat
+
+          if n == 1 then write (0)
+        elif n == 2 then write (1)
+        elif n == 3 then write (2)
+        elif n == 4 then write (3)
+                    else write (10)
+          fi;
+          if n >= 5 then write (11) fi;
+          n := n - 1
+        until n == 0
+        ",
+        &[6],
+        &[10, 11, 10, 11, 3, 2, 1, 0],
+        1,
+    );
+}
+
+#[test]
+fn test014() {
+    run(
+        "
+        read (n);
+        while n > 0 do
+          if n < 1000
+          then
+            if n < 500
+            then
+              if n < 250
+              then
+                if n < 125
+        	then
+        	  if n < 63
+        	  then
+        	    if n < 32
+        	    then
+        	      write (1)
+        	    fi
+        	  fi
+        	fi
+              fi
+            fi
+          fi;
+          n := n - 1
+        od
+        ",
+        &[100],
+        &[
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1,
+        ],
+        1,
+    );
+}
+
+#[test]
+fn test015() {
+    run(
+        "
+        s := 0;
+        read (n);
+        p := 2;
+        while n > 0 do
+            c := 2;
+            f := 1;
+            while c*c <= p && f do
+              f := (p % c) != 0;
+              c := c + 1
+            od;
+            if f != 0 then
+              if n == 1 then write (p) else skip fi;
+              n := n - 1
+            else skip fi;
+            p := p + 1
+        od
+        ",
+        &[1000],
+        &[7919],
+        1,
+    );
+}
+
+#[test]
+fn test016() {
+    run(
+        "
+        read (n);
+        s := 1;
+        repeat
+          s := s * n;
+          n := n - 1
+
+        until n == 0;
+        write (s)
+        ",
+        &[10],
+        &[3628800],
+        1,
+    );
+}
+
+#[test]
+fn test017() {
+    run(
+        "
+        read (n);
+        i     := 2;
+        fib_1 := 1;
+        fib_2 := 1;
+        fib   := 1;
+        while i < n do
+              fib   := fib_1 + fib_2;
+              fib_2 := fib_1;
+              fib_1 := fib;
+              i     := i+1
+        od;
+        write (fib)
+        ",
+        &[20],
+        &[6765],
+        1,
+    );
+}
+
+#[test]
+fn test018() {
+    run(
+        "
+        read (n);
+        c := 1;
+        p := 2;
+        while c do
+          cc := 1;
+          while cc do
+            q := 2;
+            while q * q <= p && cc do
+              cc := p % q != 0;
+              q := q + 1
+            od;
+            if cc then cc := 0 else p := p + 1; cc := 1 fi
+
+          od;
+          d := p;
+          i := 0;
+          q := n / d;
+          m := n % d;
+          while q > 0 && m == 0 do
+            i := i + 1;
+            d := d * p;
+            m := n % d;
+            if m == 0 then q := n / d else skip fi
+          od;
+          write (p);
+          write (i);
+          n := n / (d / p);
+          p := p + 1;
+          c := n != 1
+        od
+        ",
+        &[23409],
+        &[2, 0, 3, 4, 5, 0, 7, 0, 11, 0, 13, 0, 17, 2],
+        1,
+    );
+}
+
+#[test]
+fn test019() {
+    run(
+        "
+        i := 0;
+        s := 0;
+        for i := 0, i < 100, i := i+1
+        do
+            for j := 0, j < 100, j := j+1
+            do
+              s := s + j
+            od;
+            s := s + i
+        od;
+        write (s)
+        ",
+        &[],
+        &[499950],
+        0,
+    );
+}
+
+#[test]
+fn test020() {
+    run(
+        "
+        s := 0;
+        read (n);
+        p := 2;
+        while n > 0 do
+            c := 2;
+            f := 1;
+            for c := 2, c*c <= p && f, c := c+1
+            do
+              f := p % c != 0
+            od;
+            if f != 0 then
+              if n == 1 then write (p) fi;
+              n := n - 1
+            fi;
+            p := p + 1
+        od
+        ",
+        &[1000],
+        &[7919],
+        1,
+    );
+}
+
+#[test]
+fn test021() {
+    run(
+        "
+        read (n);
+        f := 1;
+        for skip, n >= 1, n := n-1
+        do
+          f := f * n
+        od;
+        write (f)
+        ",
+        &[10],
+        &[3628800],
+        1,
+    );
+}
+
+#[test]
+fn test022() {
+    run(
+        "
+        read (n);
+        fib_1 := 1;
+        fib_2 := 1;
+        fib   := 1;
+        for i := 2, i < n, i := i+1
+        do
+              fib   := fib_1 + fib_2;
+              fib_2 := fib_1;
+              fib_1 := fib
+        od;
+        write (fib)
+        ",
+        &[20],
+        &[6765],
+        1,
+    );
+}
+
+#[test]
+fn test023() {
+    run(
+        "
+        s := 0;
+        repeat
+          read (n);
+          s := s + n
+        until n == 0;
+        write (s)
+        ",
+        &[5, 6, 7, 8, 9, 0],
+        &[35],
+        6,
+    );
+}

@@ -132,7 +132,7 @@ impl CompilationContext {
                     program.push(Instruction::Label(condition_label));
                     self.compile_expr(condition, program);
                     program.push(Instruction::JumpIfNotZero(body_label));
-                },
+                }
                 Statement::DoWhile { body, condition } => {
                     let body_label = self.gen_label();
                     program.push(Instruction::Label(body_label));

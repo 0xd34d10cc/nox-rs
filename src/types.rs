@@ -20,8 +20,8 @@ pub mod parse {
     }
 
     fn identifier(input: &[u8]) -> IResult<&[u8], Var> {
-        let (input, first) = take_while1(|c| (c as char).is_alphabetic())(input)?;
-        let (input, second) = take_while(|c| (c as char).is_alphanumeric())(input)?;
+        let (input, first) = take_while1(|c| (c as char).is_alphabetic() || c == b'_')(input)?;
+        let (input, second) = take_while(|c| (c as char).is_alphanumeric() || c == b'_')(input)?;
         let first = std::str::from_utf8(first).unwrap();
         let second = std::str::from_utf8(second).unwrap();
         let name = Var::from(first) + second;
