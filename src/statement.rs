@@ -49,15 +49,13 @@ impl Statement {
                 while condition.eval(context)? != 0 {
                     run(body, context)?;
                 }
-            },
-            Statement::DoWhile { body, condition } => {
-                loop {
-                    run(body, context)?;
-                    if condition.eval(context)? == 0 {
-                        break;
-                    }
-                }
             }
+            Statement::DoWhile { body, condition } => loop {
+                run(body, context)?;
+                if condition.eval(context)? == 0 {
+                    break;
+                }
+            },
             Statement::Assign(name, value) => {
                 let value = value.eval(context)?;
                 context.set(name, value);
@@ -91,7 +89,8 @@ pub fn parse(input: &[u8]) -> Result<Program, Box<dyn Error>> {
 
     if !rest.is_empty() {
         return Err(format!(
-            "Incomplete parse of statement {}: {}",
+            "Incomplete parse of statement\nProgram: {:?}\nOriginal: \n{}\nRest: \n{}",
+            program,
             String::from_utf8_lossy(input),
             String::from_utf8_lossy(rest)
         )
@@ -127,8 +126,8 @@ pub mod parse {
     // Var ::= Char+
 
     use super::{Expr, Program, Var};
-    use crate::ops::LogicOp;
     use crate::expr::parse::expr;
+    use crate::ops::LogicOp;
     use crate::types::parse::variable;
 
     use nom::branch::alt;
@@ -206,11 +205,15 @@ pub mod parse {
                     condition,
                     body: convert(body),
                 })
-            },
+            }
             Statement::RepeatUntil { body, condition } => program.push(super::Statement::DoWhile {
                 body: convert(body),
                 // until == while condition is false
-                condition: Expr::LogicOp(LogicOp::Eq, Box::new(condition), Box::new(Expr::Const(0)))
+                condition: Expr::LogicOp(
+                    LogicOp::Eq,
+                    Box::new(condition),
+                    Box::new(Expr::Const(0)),
+                ),
             }),
             Statement::Assign(to, from) => program.push(super::Statement::Assign(to, from)),
             Statement::Read(into) => program.push(super::Statement::Read(into)),
@@ -237,7 +240,16 @@ pub mod parse {
     fn statement(input: &[u8]) -> IResult<&[u8], Statement> {
         preceded(
             spaces,
-            alt((skip, while_, for_, repeat_until, if_else, assign, read, write)),
+            alt((
+                skip,
+                while_,
+                for_,
+                repeat_until,
+                if_else,
+                assign,
+                read,
+                write,
+            )),
         )(input)
     }
 
