@@ -1,5 +1,5 @@
-use std::error::Error;
 use std::collections::HashMap;
+use std::error::Error;
 
 use crate::context::ExecutionContext;
 use crate::expr::Expr;
@@ -28,7 +28,7 @@ pub enum Instruction {
 
 pub struct Program {
     labels: Labels,
-    instructions: Vec<Instruction>
+    instructions: Vec<Instruction>,
 }
 
 impl Program {
@@ -39,14 +39,14 @@ impl Program {
         }
     }
 
-    pub fn instructions(&self) -> impl Iterator<Item=&Instruction> {
+    pub fn instructions(&self) -> impl Iterator<Item = &Instruction> {
         self.instructions.iter()
     }
 
     pub fn push(&mut self, instruction: Instruction) {
         let label = match &instruction {
             Instruction::Label(label) => Some(*label),
-            _ => None
+            _ => None,
         };
 
         self.instructions.push(instruction);
@@ -61,14 +61,12 @@ impl Program {
 type Stack = Vec<Int>;
 
 struct CompilationContext {
-    label: Label
+    label: Label,
 }
 
 impl CompilationContext {
     fn new() -> Self {
-        CompilationContext {
-            label: 0 as Label
-        }
+        CompilationContext { label: 0 as Label }
     }
 
     fn gen_label(&mut self) -> Label {
@@ -100,11 +98,15 @@ impl CompilationContext {
                 Statement::IfElse {
                     condition,
                     if_true,
-                    if_false
+                    if_false,
                 } => {
                     let has_false_branch = !if_false.is_empty();
                     let end_label = self.gen_label();
-                    let false_label = if has_false_branch { self.gen_label() } else { end_label };
+                    let false_label = if has_false_branch {
+                        self.gen_label()
+                    } else {
+                        end_label
+                    };
 
                     self.compile_expr(condition, program);
                     program.push(Instruction::JumpIfZero(false_label));
@@ -118,7 +120,7 @@ impl CompilationContext {
                     }
 
                     program.push(Instruction::Label(end_label));
-                },
+                }
                 Statement::While { condition, body } => {
                     let body_label = self.gen_label();
                     let condition_label = self.gen_label();
@@ -130,7 +132,7 @@ impl CompilationContext {
                     program.push(Instruction::Label(condition_label));
                     self.compile_expr(condition, program);
                     program.push(Instruction::JumpIfNotZero(body_label));
-                },
+                }
                 Statement::Read(var) => {
                     program.push(Instruction::Read);
                     program.push(Instruction::Store(var.clone()));
@@ -179,20 +181,24 @@ where
         self.stack.pop()
     }
 
-    fn execute(&mut self, instruction: &Instruction, labels: &Labels) -> Result<Option<usize>, Box<dyn Error>> {
+    fn execute(
+        &mut self,
+        instruction: &Instruction,
+        labels: &Labels,
+    ) -> Result<Option<usize>, Box<dyn Error>> {
         match instruction {
             Instruction::Label(_) => { /* ignore */ }
             Instruction::Jump(label) => {
                 let location = labels.get(label).ok_or("Invalid label (jump)")?;
                 return Ok(Some(*location));
-            },
+            }
             Instruction::JumpIfZero(label) => {
                 let v = self.pop().ok_or("Empty stack (jz)")?;
                 if v == 0 {
                     let location = labels.get(label).ok_or("Invalid label (jz)")?;
                     return Ok(Some(*location));
                 }
-            },
+            }
             Instruction::JumpIfNotZero(label) => {
                 let v = self.pop().ok_or("Empty stack (jnz)")?;
                 if v != 0 {
@@ -242,8 +248,7 @@ where
         while pc < program.instructions.len() {
             if let Some(location) = self.execute(&program.instructions[pc], &program.labels)? {
                 pc = location;
-            }
-            else {
+            } else {
                 pc += 1;
             }
         }

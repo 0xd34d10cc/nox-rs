@@ -10,7 +10,7 @@ use std::mem;
 use capstone::prelude::*;
 use dynasm::dynasm;
 use dynasmrt::x64::Assembler;
-use dynasmrt::{AssemblyOffset, DynasmApi, DynasmLabelApi, ExecutableBuffer, DynamicLabel};
+use dynasmrt::{AssemblyOffset, DynamicLabel, DynasmApi, DynasmLabelApi, ExecutableBuffer};
 
 use crate::context::{InputStream, OutputStream};
 use crate::ops::{LogicOp, Op};
@@ -265,7 +265,7 @@ struct CompilationContext {
     stack: Vec<Operand>,
     globals: Globals,
     runtime: Box<Runtime>,
-    labels: HashMap<sm::Label, DynamicLabel>
+    labels: HashMap<sm::Label, DynamicLabel>,
 }
 
 impl CompilationContext {
@@ -275,7 +275,7 @@ impl CompilationContext {
             stack: Vec::new(),
             globals,
             runtime,
-            labels: HashMap::new()
+            labels: HashMap::new(),
         }
     }
 
@@ -310,13 +310,11 @@ impl CompilationContext {
     }
 
     fn dyn_label(&mut self, label: sm::Label, ops: &mut Assembler) -> DynamicLabel {
-        self.labels.get(&label)
-            .cloned()
-            .unwrap_or_else(|| {
-                let dyn_label = ops.new_dynamic_label();
-                self.labels.insert(label, dyn_label);
-                dyn_label
-            })
+        self.labels.get(&label).cloned().unwrap_or_else(|| {
+            let dyn_label = ops.new_dynamic_label();
+            self.labels.insert(label, dyn_label);
+            dyn_label
+        })
     }
 }
 
@@ -441,7 +439,6 @@ impl Compiler {
                 dynasm!(ops
                     ; jz =>dyn_label
                 )
-
             }
             sm::Instruction::JumpIfNotZero(label) => {
                 let dyn_label = context.dyn_label(*label, ops);
@@ -460,7 +457,7 @@ impl Compiler {
                 dynasm!(ops
                     ; jnz =>dyn_label
                 )
-            },
+            }
             sm::Instruction::Const(c) => {
                 let dst = context.allocate();
                 dst.store_const(*c, ops);

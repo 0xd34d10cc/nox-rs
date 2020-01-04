@@ -81,7 +81,6 @@ impl Display for Operand {
     }
 }
 
-
 #[derive(Debug, Clone, Copy)]
 pub enum Condition {
     Less,
@@ -120,7 +119,6 @@ impl fmt::Display for Condition {
         write!(f, "{}", suffix)
     }
 }
-
 
 #[derive(Debug, Clone)]
 enum Instruction {
@@ -258,7 +256,10 @@ impl Compiler {
         let text = &mut program.text;
         let mut push = |instruction| text.push((instruction, comment.clone()));
         match instruction {
-            sm::Instruction::Label(_) | sm::Instruction::Jump(_) | sm::Instruction::JumpIfZero(_) | sm::Instruction::JumpIfNotZero(_) => todo!(),
+            sm::Instruction::Label(_)
+            | sm::Instruction::Jump(_)
+            | sm::Instruction::JumpIfZero(_)
+            | sm::Instruction::JumpIfNotZero(_) => todo!(),
             sm::Instruction::Const(n) => {
                 let op = self.allocate();
                 push(Instruction::Mov(op, Operand::Literal(*n)));
