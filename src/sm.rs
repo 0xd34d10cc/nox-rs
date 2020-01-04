@@ -7,7 +7,7 @@ use crate::ops::{LogicOp, Op};
 use crate::statement::{self, Statement};
 use crate::types::{Int, Var};
 
-type Label = usize;
+pub type Label = usize;
 type Labels = HashMap<Label, usize>; // Label -> instruction index
 
 // Stack machine instruction
