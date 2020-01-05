@@ -10,7 +10,6 @@ use crate::jit::{self, Runtime};
 use crate::sm;
 use crate::statement::{self, Statement};
 use crate::types::Var;
-use crate::x86;
 
 pub enum InputLine {
     Delete(Var),
@@ -25,8 +24,6 @@ pub enum InputLine {
 
     ShowSMInstructions(statement::Program),
     RunSMInstructions(statement::Program),
-
-    ShowAsm(statement::Program),
 
     ShowJITAsm(statement::Program),
     RunJIT(statement::Program),
@@ -87,11 +84,6 @@ impl Interpreter {
                 let p = sm::compile(&p);
                 let mut machine = sm::StackMachine::new(&mut self.context);
                 machine.run(&p)?;
-            }
-            InputLine::ShowAsm(p) => {
-                let p = sm::compile(&p);
-                let p = x86::Compiler::new().compile(&p)?;
-                println!("{}", p);
             }
             InputLine::ShowJITAsm(p) => {
                 let p = sm::compile(&p);
@@ -157,7 +149,7 @@ impl Interpreter {
 mod parse {
     // Input ::= Delete     | Reset     | ShowEnv | RunExpr
     //         | ShowExpr   | RunStmt   | ShowStmt
-    //         | ShowSMInsn | RunSMInsn | ShowAsm
+    //         | ShowSMInsn | RunSMInsn
     //         | ShowJITAsm | RunJIT
     // Delete ::= ':del' Var
     // Reset ::= ':reset'
@@ -166,7 +158,6 @@ mod parse {
     // ShowExpr ::= ':se' Expr
     // RunStmt ::= ':rs' Statements | Statements
     // ShowStmt ::= ':ss' Statements
-    // ShowAsm ::= ':asm' Statements
     // ShowJITAsm ::= :sj Statements
     // RunJIT ::= :rj Statements
 
@@ -196,7 +187,6 @@ mod parse {
             command(":ssm", map(program, InputLine::ShowSMInstructions)),
             command(":rs", map(program, InputLine::RunStatements)),
             command(":ss", map(program, InputLine::ShowStatements)),
-            command(":asm", map(program, InputLine::ShowAsm)),
             command(":rj", map(program, InputLine::RunJIT)),
             command(":sj", map(program, InputLine::ShowJITAsm)),
             map(program, InputLine::RunStatements),

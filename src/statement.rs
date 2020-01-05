@@ -78,6 +78,7 @@ impl Statement {
 
 pub type Program = Vec<Statement>;
 
+#[cfg(test)]
 pub fn parse(input: &[u8]) -> Result<Program, Box<dyn Error>> {
     let (rest, program) = parse::program(input).map_err(|e| {
         format!(
@@ -222,7 +223,7 @@ pub mod parse {
     }
 
     pub fn program(input: &[u8]) -> IResult<&[u8], Program> {
-        map(statements, |statements| convert(statements))(input)
+        map(statements, convert)(input)
     }
 
     fn statements(input: &[u8]) -> IResult<&[u8], Vec<Statement>> {
@@ -299,7 +300,7 @@ pub mod parse {
         // build if-else chain
         let if_else = if let Some((condition, body)) = elifs.pop() {
             let mut root = Statement::IfElse {
-                condition: condition,
+                condition,
                 if_true: body,
                 if_false: else_.unwrap_or_default(),
             };
@@ -314,7 +315,7 @@ pub mod parse {
 
             Statement::IfElse {
                 condition: root_condition,
-                if_true: if_true,
+                if_true,
                 if_false: vec![root],
             }
         } else {
