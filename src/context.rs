@@ -1,11 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Stdin, Stdout, Write};
+use std::iter::FromIterator;
 
-use crate::types::{Int, Var};
+use crate::types::{Int, Result, Var};
 
 pub trait Memory {
-    fn get(&self, name: &str) -> Option<Int>;
-    fn set(&mut self, name: &str, value: Int);
+    fn load(&self, name: &Var) -> Option<Int>;
+    fn store(&mut self, name: &Var, value: Int);
+    fn scope<F, L>(&mut self, locals: L, f: F) -> Result<()>
+    where
+        F: FnMut(&mut Self) -> Result<()>,
+        L: IntoIterator<Item = Var>;
 }
 
 pub trait InputStream {
@@ -16,93 +21,81 @@ pub trait OutputStream {
     fn write(&mut self, value: Int);
 }
 
-// Execution context: model for memory, input & output streams
-pub trait ExecutionContext: Memory + InputStream + OutputStream {}
+type Vars = HashMap<Var, Int>;
 
-pub type Env = HashMap<Var, Int>;
+#[derive(Default, Debug)]
+pub struct Env {
+    globals: Vars,
+    locals: Vec<(Vars, HashSet<Var>)>,
+}
+
+impl Env {
+    pub fn new() -> Self {
+        Env::default()
+    }
+
+    #[cfg(test)]
+    pub fn globals(&self) -> impl Iterator<Item = (&Var, &Int)> {
+        self.globals.iter()
+    }
+
+    pub fn delete(&mut self, name: &Var) -> Option<Int> {
+        self.storage_mut(name).remove(name)
+    }
+
+    pub fn clear(&mut self) {
+        self.globals.clear();
+        self.locals.clear();
+    }
+
+    fn storage_mut(&mut self, name: &Var) -> &mut Vars {
+        match self.locals.last_mut() {
+            Some((ref mut values, names)) if names.contains(name) => values,
+            _ => &mut self.globals,
+        }
+    }
+
+    fn storage(&self, name: &Var) -> &Vars {
+        match self.locals.last() {
+            Some((values, names)) if names.contains(name) => values,
+            _ => &self.globals,
+        }
+    }
+}
+
+impl FromIterator<(Var, Int)> for Env {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = (Var, Int)>,
+    {
+        let globals = iter.into_iter().collect();
+        Env {
+            globals,
+            locals: Vec::new(),
+        }
+    }
+}
 
 impl Memory for Env {
-    fn get(&self, name: &str) -> Option<Int> {
-        HashMap::get(self, name).copied()
+    fn load(&self, name: &Var) -> Option<Int> {
+        self.storage(name).get(name).copied()
     }
 
-    fn set(&mut self, name: &str, value: Int) {
-        HashMap::insert(self, name.to_string(), value);
-    }
-}
-
-// boilerplate to make &mut T work
-impl<T> Memory for &mut T
-where
-    T: Memory,
-{
-    fn get(&self, name: &str) -> Option<Int> {
-        <T as Memory>::get(self, name)
+    fn store(&mut self, name: &Var, value: Int) {
+        self.storage_mut(name).insert(name.clone(), value);
     }
 
-    fn set(&mut self, name: &str, value: Int) {
-        <T as Memory>::set(self, name, value)
+    fn scope<F, L>(&mut self, locals: L, f: F) -> Result<()>
+    where
+        F: FnOnce(&mut Self) -> Result<()>,
+        L: IntoIterator<Item = Var>,
+    {
+        let local_names = locals.into_iter().collect();
+        self.locals.push((Vars::new(), local_names));
+        let r = f(self);
+        self.locals.pop();
+        r
     }
-}
-
-impl<T> InputStream for &mut T
-where
-    T: InputStream,
-{
-    fn read(&mut self) -> Option<Int> {
-        <T as InputStream>::read(self)
-    }
-}
-
-impl<T> OutputStream for &mut T
-where
-    T: OutputStream,
-{
-    fn write(&mut self, value: Int) {
-        <T as OutputStream>::write(self, value)
-    }
-}
-
-impl<T> ExecutionContext for &mut T where T: ExecutionContext {}
-
-// boilerplate to make tuple of (memory, input, output) implement ExecutionContext
-impl<M, I, O> Memory for (M, I, O)
-where
-    M: Memory,
-{
-    fn get(&self, name: &str) -> Option<Int> {
-        self.0.get(name)
-    }
-
-    fn set(&mut self, name: &str, value: Int) {
-        self.0.set(name, value)
-    }
-}
-
-impl<M, I, O> InputStream for (M, I, O)
-where
-    I: InputStream,
-{
-    fn read(&mut self) -> Option<Int> {
-        self.1.read()
-    }
-}
-
-impl<M, I, O> OutputStream for (M, I, O)
-where
-    O: OutputStream,
-{
-    fn write(&mut self, value: Int) {
-        self.2.write(value)
-    }
-}
-
-impl<M, I, O> ExecutionContext for (M, I, O)
-where
-    M: Memory,
-    I: InputStream,
-    O: OutputStream,
-{
 }
 
 // IO streams implementations

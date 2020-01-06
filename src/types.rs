@@ -1,3 +1,6 @@
+use std::error::Error;
+
+pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 pub type Int = i64;
 pub type Var = String;
 
@@ -5,7 +8,12 @@ pub mod parse {
     use super::*;
     use nom::bytes::complete::{take_while, take_while1};
     use nom::combinator::{map_res, verify};
+    use nom::sequence::preceded;
     use nom::IResult;
+
+    fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
+        take_while(|c| (c as char).is_whitespace())(input)
+    }
 
     pub fn is_keyword(s: &str) -> bool {
         match s {
@@ -16,7 +24,7 @@ pub mod parse {
     }
 
     pub fn variable(input: &[u8]) -> IResult<&[u8], Var> {
-        verify(identifier, |v| !is_keyword(&v))(input)
+        verify(preceded(spaces, identifier), |v| !is_keyword(&v))(input)
     }
 
     fn identifier(input: &[u8]) -> IResult<&[u8], Var> {

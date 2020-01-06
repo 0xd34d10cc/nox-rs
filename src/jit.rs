@@ -2,7 +2,6 @@
 compile_error!("JIT is implemented only for x86-64");
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::fmt;
 use std::io;
 use std::mem;
@@ -15,7 +14,7 @@ use dynasmrt::{AssemblyOffset, DynamicLabel, DynasmApi, DynasmLabelApi, Executab
 use crate::context::{InputStream, OutputStream};
 use crate::ops::{LogicOp, Op};
 use crate::sm;
-use crate::types::{Int, Var};
+use crate::types::{Int, Result, Var};
 
 pub struct Runtime {
     input: Box<dyn InputStream>,
@@ -226,7 +225,7 @@ impl Globals {
         Some(self.values[*index] as i64)
     }
 
-    fn allocate(program: &sm::Program) -> Result<Globals, Box<dyn Error>> {
+    fn allocate(program: &sm::Program) -> Result<Globals> {
         let mut globals = Globals::default();
         let mut index = 0;
 
@@ -409,8 +408,9 @@ impl Compiler {
         ops: &mut Assembler,
         context: &mut CompilationContext,
         instruction: &sm::Instruction,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         match instruction {
+            sm::Instruction::Leave => { /* todo, ignore for now */ }
             sm::Instruction::Label(label) => {
                 let offset = ops.offset();
                 let dyn_label = context.dyn_label(*label, ops);
@@ -633,11 +633,7 @@ impl Compiler {
         Ok(())
     }
 
-    pub fn compile(
-        &mut self,
-        program: &sm::Program,
-        runtime: Box<Runtime>,
-    ) -> Result<Program, Box<dyn Error>> {
+    pub fn compile(&mut self, program: &sm::Program, runtime: Box<Runtime>) -> Result<Program> {
         let mut ops = Assembler::new().unwrap();
 
         let globals = Globals::allocate(program)?;

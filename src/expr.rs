@@ -1,8 +1,6 @@
-use std::error::Error;
-
 use crate::context::Memory;
 use crate::ops::{LogicOp, Op};
-use crate::types::{Int, Var};
+use crate::types::{Int, Result, Var};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -14,7 +12,7 @@ pub enum Expr {
 
 impl Expr {
     #[cfg(test)]
-    pub fn parse(input: &[u8]) -> Result<Expr, Box<dyn Error>> {
+    pub fn parse(input: &[u8]) -> Result<Expr> {
         let (rest, e) = self::parse::expr(input).map_err(|e| {
             // TODO: find out how to pretty print nom errors
             format!(
@@ -26,7 +24,7 @@ impl Expr {
 
         if !rest.is_empty() {
             return Err(format!(
-                "Incomplete parse of {}: {}",
+                "Incomplete parse of expression {}: {}",
                 String::from_utf8_lossy(input),
                 String::from_utf8_lossy(rest)
             )
@@ -36,11 +34,11 @@ impl Expr {
         Ok(e)
     }
 
-    pub fn eval<M: Memory>(&self, memory: &M) -> Result<Int, Box<dyn Error>> {
+    pub fn eval<M: Memory>(&self, memory: &M) -> Result<Int> {
         match self {
             Expr::Var(name) => {
                 let val = memory
-                    .get(name)
+                    .load(name)
                     .ok_or_else(|| format!("Variable {} is not defined", name))?;
                 Ok(val)
             }
