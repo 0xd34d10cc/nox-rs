@@ -64,7 +64,7 @@ impl Interpreter {
     pub fn execute(&mut self, line: InputLine) -> Result<(), Box<dyn Error>> {
         match line {
             InputLine::Delete(var) => {
-                if self.memory.delete(&var).is_none() {
+                if self.memory.remove(&var).is_none() {
                     println!("No such variable: {}", var);
                 }
             }

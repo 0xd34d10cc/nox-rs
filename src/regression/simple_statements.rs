@@ -488,3 +488,188 @@ fn test023() {
         6,
     );
 }
+
+#[test]
+fn test024() {
+    run(
+        "
+        fun test1 () {
+          a := 3
+        }
+        fun test2 (b) {
+          a := b
+        }
+        test1 ();
+        write (a);
+        test2 (8);
+        write (a)
+        ",
+        &[0],
+        &[3, 8],
+        0,
+    );
+}
+
+#[test]
+fn test025() {
+    run(
+        "
+        fun test1 (a) {
+          write (a)
+        }
+        fun test2 (b) {
+          write (b)
+        }
+        fun test3 (c) {
+          write (c)
+        }
+        fun print () {
+          write (a);
+          write (b);
+          write (c)
+        }
+        a := 100;
+        b := 200;
+        c := 300;
+        test1 (1);
+        print ();
+        test2 (2);
+        print ();
+        test3 (3);
+        print ()
+        ",
+        &[0],
+        &[1, 100, 200, 300, 2, 100, 200, 300, 3, 100, 200, 300],
+        0,
+    );
+}
+
+#[test]
+fn test026() {
+    run(
+        "
+        fun test1 (a) {
+          write (a);
+          print ()
+        }
+        fun test2 (b) {
+          write (b);
+          print ()
+        }
+        fun test3 (c) {
+          write (c);
+          print ()
+        }
+        fun print () {
+          write (a);
+          write (b);
+          write (c)
+        }
+        a := 100;
+        b := 200;
+        c := 300;
+        test1 (1);
+        print ();
+        test2 (2);
+        print ();
+        test3 (3);
+        print ()
+        ",
+        &[0],
+        &[
+            1, 100, 200, 300, 100, 200, 300, 2, 100, 200, 300, 100, 200, 300, 3, 100, 200, 300,
+            100, 200, 300,
+        ],
+        0,
+    );
+}
+
+#[test]
+fn test027() {
+    run(
+        "
+        fun print () {
+          write (a);
+          write (b);
+          write (c)
+        }
+        fun test1 (a) {
+          write (a);
+          print ();
+          write (a);
+          if a < 4 then
+             test2 (a+1);
+             print ()
+          fi
+        }
+        fun test2 (b) {
+          write (b);
+          print ();
+          test1 (b+1);
+          print ()
+        }
+        a := 100;
+        b := 200;
+        c := 300;
+        test1 (1)
+        ",
+        &[0],
+        &[
+            1, 100, 200, 300, 1, 2, 100, 200, 300, 3, 100, 200, 300, 3, 4, 100, 200, 300, 5, 100,
+            200, 300, 5, 100, 200, 300, 100, 200, 300, 100, 200, 300, 100, 200, 300,
+        ],
+        0,
+    );
+}
+
+#[test]
+fn test028() {
+    run(
+        "
+        fun fact (n) {
+          if n <= 1
+          then result := 1
+          else
+            fact (n-1);
+            result := result * n
+          fi
+        }
+        read (n);
+        for i := n, i >= 1, i := i-1 do
+          fact (i);
+          write (i);
+          write (result)
+        od
+        ",
+        &[7],
+        &[7, 5040, 6, 720, 5, 120, 4, 24, 3, 6, 2, 2, 1, 1],
+        1,
+    );
+}
+
+#[test]
+fn test029() {
+    run(
+        "
+        fun fib (n) local r {
+          if n <= 1
+          then result := 1
+          else
+            fib (n-1);
+            r := result;
+            fib (n-2);
+            result := result + r
+          fi
+        }
+        read (n);
+        for i := n, i >= 1, i := i-1 do
+          fib (i);
+          write (i);
+          write (result)
+        od
+        ",
+        &[9],
+        &[9, 55, 8, 34, 7, 21, 6, 13, 5, 8, 4, 5, 3, 3, 2, 2, 1, 1],
+        1,
+    );
+}

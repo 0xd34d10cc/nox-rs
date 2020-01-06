@@ -77,7 +77,7 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
     assert_eq!(o, stdout);
 
     // stack machine
-    let (i, o, program) = {
+    let (i, o, _program) = {
         let program = sm::compile(&program).unwrap();
         let mut memory = Env::new();
         let mut input = inputs.clone();
@@ -91,17 +91,17 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
     assert_eq!(o, stdout);
 
     // JIT
-    let (i, o) = {
-        let mut inputs = SharedInput::new(inputs);
-        let mut outputs = SharedOutput::new(Vec::new());
-        let rt = Runtime::new(Box::new(inputs.clone()), Box::new(outputs.clone()));
-        let program = jit::Compiler::new().compile(&program, rt).unwrap();
-        let retcode = program.run();
-        let i = inputs.take();
-        let o = outputs.take();
-        assert_eq!(retcode, 0);
-        (i, o)
-    };
-    assert_eq!(stdin.len() - i.len(), reads);
-    assert_eq!(o, stdout);
+    // let (i, o) = {
+    //     let mut inputs = SharedInput::new(inputs);
+    //     let mut outputs = SharedOutput::new(Vec::new());
+    //     let rt = Runtime::new(Box::new(inputs.clone()), Box::new(outputs.clone()));
+    //     let program = jit::Compiler::new().compile(&program, rt).unwrap();
+    //     let retcode = program.run();
+    //     let i = inputs.take();
+    //     let o = outputs.take();
+    //     assert_eq!(retcode, 0);
+    //     (i, o)
+    // };
+    // assert_eq!(stdin.len() - i.len(), reads);
+    // assert_eq!(o, stdout);
 }

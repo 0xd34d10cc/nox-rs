@@ -410,7 +410,6 @@ impl Compiler {
         instruction: &sm::Instruction,
     ) -> Result<()> {
         match instruction {
-            sm::Instruction::Leave => { /* todo, ignore for now */ }
             sm::Instruction::Label(label) => {
                 let offset = ops.offset();
                 let dyn_label = context.dyn_label(*label, ops);
@@ -629,6 +628,9 @@ impl Compiler {
                     }
                 }
             }
+            sm::Instruction::Call(_) => todo!(),
+            sm::Instruction::Begin { .. } => todo!(),
+            sm::Instruction::End => todo!(),
         };
         Ok(())
     }

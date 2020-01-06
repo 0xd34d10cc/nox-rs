@@ -10,7 +10,7 @@ fn parse(input: &str) -> Expr {
 
 fn eval(expr: Expr, memory: &Context) -> Int {
     use crate::context::Memory;
-    use crate::sm::{self, Instruction, StackMachine};
+    use crate::sm::{self, StackMachine};
     use crate::statement::{self, Statement};
     use crate::types::Var;
 
@@ -20,9 +20,9 @@ fn eval(expr: Expr, memory: &Context) -> Int {
     let result_var = Var::from("RESULT");
 
     // then in statements language
-    let (s, program) = {
+    let (s, mut program) = {
         let mut main = Vec::new();
-        for (name, value) in memory.globals() {
+        for (name, value) in memory.iter() {
             let set_var = Statement::Assign(name.to_string(), Expr::Const(*value));
             main.push(set_var);
         }
@@ -39,34 +39,33 @@ fn eval(expr: Expr, memory: &Context) -> Int {
     assert_eq!(e, s);
 
     // then using state machine instructions
-    let (sm, program) = {
-        let mut program = sm::compile(&program).unwrap();
-        program.push(Instruction::Load(result_var.clone()));
-
+    let (sm, _program) = {
+        let program = sm::compile(&program).unwrap();
         let mut memory = Context::new();
         let mut input = ();
         let mut output = ();
         let mut machine = StackMachine::new(&mut memory, &mut input, &mut output);
         machine.run(&program).unwrap();
-        let sm = machine.pop().unwrap();
         assert_eq!(machine.pop(), None); // stack should be empty
+        let sm = memory.load(&result_var).unwrap();
         (sm, program)
     };
     assert_eq!(s, sm);
 
     // then via JIT
-    let jit = {
-        let program = crate::jit::Compiler::new()
-            .compile(&program, crate::jit::Runtime::stdio())
-            .unwrap();
-        let retcode = program.run();
-        let jit = program.globals().load(&result_var).unwrap();
-        assert_eq!(retcode, 0);
-        jit
-    };
-    assert_eq!(jit, sm);
+    // let jit = {
+    //     let program = crate::jit::Compiler::new()
+    //         .compile(&program, crate::jit::Runtime::stdio())
+    //         .unwrap();
+    //     let retcode = program.run();
+    //     let jit = program.globals().load(&result_var).unwrap();
+    //     assert_eq!(retcode, 0);
+    //     jit
+    // };
+    // assert_eq!(jit, sm);
 
-    jit
+    // jit
+    sm
 }
 
 fn make_context(variables: &[(&str, Int)]) -> Context {
