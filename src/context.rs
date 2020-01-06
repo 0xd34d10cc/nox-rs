@@ -1,16 +1,66 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Stdin, Stdout, Write};
-use std::iter::FromIterator;
 
-use crate::types::{Int, Result, Var};
+use crate::types::{Int, Var};
 
 pub trait Memory {
     fn load(&self, name: &Var) -> Option<Int>;
     fn store(&mut self, name: &Var, value: Int);
-    fn scope<F, L>(&mut self, locals: L, f: F) -> Result<()>
-    where
-        F: FnMut(&mut Self) -> Result<()>,
-        L: IntoIterator<Item = Var>;
+    fn scope(&mut self, vars: HashSet<Var>) -> Scope;
+}
+
+impl<M> Memory for &mut M where M: Memory {
+    fn load(&self, name: &Var) -> Option<Int> {
+        <M as Memory>::load(self, name)
+    }
+
+    fn store(&mut self, name: &Var, value: Int) {
+        <M as Memory>::store(self, name, value)
+    }
+
+    fn scope(&mut self, vars: HashSet<Var>) -> Scope {
+        <M as Memory>::scope(self, vars)
+    }
+}
+
+pub struct Scope<'a> {
+    globals: &'a mut dyn Memory,
+    local_names: HashSet<Var>,
+    locals: Env
+}
+
+impl Scope<'_> {
+    pub fn new<'a>(globals: &'a mut dyn Memory, local_names: HashSet<Var>) -> Scope<'a> {
+        Scope {
+            globals,
+            local_names,
+            locals: Env::new()
+        }
+    }
+}
+
+impl<'a> Memory for Scope<'a> {
+    fn load(&self, name: &Var) -> Option<Int> {
+        if self.local_names.contains(name) {
+            self.locals.get(name).copied()
+        }
+        else {
+            self.globals.load(name)
+        }
+    }
+
+    fn store(&mut self, name: &Var, value: Int) {
+        if self.local_names.contains(name) {
+            self.locals.insert(name.clone(), value);
+        }
+        else {
+            self.globals.store(name, value);
+        }
+    }
+
+    fn scope(&mut self, local_names: HashSet<Var>) -> Scope {
+        Scope::new(self.globals, local_names)
+    }
 }
 
 pub trait InputStream {
@@ -21,80 +71,19 @@ pub trait OutputStream {
     fn write(&mut self, value: Int);
 }
 
-type Vars = HashMap<Var, Int>;
-
-#[derive(Default, Debug)]
-pub struct Env {
-    globals: Vars,
-    locals: Vec<(Vars, HashSet<Var>)>,
-}
-
-impl Env {
-    pub fn new() -> Self {
-        Env::default()
-    }
-
-    #[cfg(test)]
-    pub fn globals(&self) -> impl Iterator<Item = (&Var, &Int)> {
-        self.globals.iter()
-    }
-
-    pub fn delete(&mut self, name: &Var) -> Option<Int> {
-        self.storage_mut(name).remove(name)
-    }
-
-    pub fn clear(&mut self) {
-        self.globals.clear();
-        self.locals.clear();
-    }
-
-    fn storage_mut(&mut self, name: &Var) -> &mut Vars {
-        match self.locals.last_mut() {
-            Some((ref mut values, names)) if names.contains(name) => values,
-            _ => &mut self.globals,
-        }
-    }
-
-    fn storage(&self, name: &Var) -> &Vars {
-        match self.locals.last() {
-            Some((values, names)) if names.contains(name) => values,
-            _ => &self.globals,
-        }
-    }
-}
-
-impl FromIterator<(Var, Int)> for Env {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = (Var, Int)>,
-    {
-        let globals = iter.into_iter().collect();
-        Env {
-            globals,
-            locals: Vec::new(),
-        }
-    }
-}
+pub type Env = HashMap<Var, Int>;
 
 impl Memory for Env {
     fn load(&self, name: &Var) -> Option<Int> {
-        self.storage(name).get(name).copied()
+        self.get(name).copied()
     }
 
     fn store(&mut self, name: &Var, value: Int) {
-        self.storage_mut(name).insert(name.clone(), value);
+        self.insert(name.clone(), value);
     }
 
-    fn scope<F, L>(&mut self, locals: L, f: F) -> Result<()>
-    where
-        F: FnOnce(&mut Self) -> Result<()>,
-        L: IntoIterator<Item = Var>,
-    {
-        let local_names = locals.into_iter().collect();
-        self.locals.push((Vars::new(), local_names));
-        let r = f(self);
-        self.locals.pop();
-        r
+    fn scope(&mut self, local_names: HashSet<Var>) -> Scope {
+        Scope::new(self, local_names)
     }
 }
 

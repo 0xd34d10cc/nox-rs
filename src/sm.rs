@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 
-use crate::context::{InputStream, Memory, OutputStream};
+use crate::context::{InputStream, Memory, Scope, OutputStream};
 use crate::expr::Expr;
 use crate::ops::{LogicOp, Op};
-use crate::statement::{self, Statement};
+use crate::statement::{self, Statement, Function};
 use crate::types::{Int, Result, Var};
 
 pub type Label = usize;
@@ -23,7 +23,12 @@ pub enum Instruction {
     Write,
     Load(Var),
     Store(Var),
-    Leave,
+    Call(Label),
+    Begin {
+        args: Vec<Var>,
+        locals: Vec<Var>,
+    },
+    End,
 }
 
 pub struct Program {
@@ -61,14 +66,29 @@ impl Program {
 type Stack = Vec<Int>;
 
 struct CompilationContext {
+    labels: HashMap<Var, Label>,
     label: Label,
 }
 
 impl CompilationContext {
     fn new() -> Self {
-        CompilationContext { label: 0 as Label }
+        CompilationContext {
+            label: 0 as Label,
+            labels: HashMap::new(),
+        }
     }
 
+    fn gen_named_label(&mut self, name: &Var) -> Label {
+        self.labels.get(name)
+            .copied()
+            .unwrap_or_else(|| {
+                let label = self.gen_label();
+                self.labels.insert(name.clone(), label);
+                label
+            })
+    }
+
+    // generate local (unnamed) label
     fn gen_label(&mut self) -> Label {
         self.label += 1;
         self.label
@@ -91,7 +111,7 @@ impl CompilationContext {
         }
     }
 
-    fn compile_into(&mut self, statements: &[Statement], program: &mut Program) {
+    fn compile_statements(&mut self, statements: &[Statement], program: &mut Program) {
         for statement in statements {
             match statement {
                 Statement::Skip => { /* do nothing, successfully */ }
@@ -110,13 +130,13 @@ impl CompilationContext {
 
                     self.compile_expr(condition, program);
                     program.push(Instruction::JumpIfZero(false_label));
-                    self.compile_into(if_true, program);
+                    self.compile_statements(if_true, program);
 
                     if !if_false.is_empty() {
                         program.push(Instruction::Jump(end_label));
 
                         program.push(Instruction::Label(false_label));
-                        self.compile_into(if_false, program);
+                        self.compile_statements(if_false, program);
                     }
 
                     program.push(Instruction::Label(end_label));
@@ -127,7 +147,7 @@ impl CompilationContext {
 
                     let body_label = self.gen_label();
                     program.push(Instruction::Label(body_label));
-                    self.compile_into(body, program);
+                    self.compile_statements(body, program);
 
                     program.push(Instruction::Label(condition_label));
                     self.compile_expr(condition, program);
@@ -137,7 +157,7 @@ impl CompilationContext {
                     let body_label = self.gen_label();
                     program.push(Instruction::Label(body_label));
 
-                    self.compile_into(body, program);
+                    self.compile_statements(body, program);
                     self.compile_expr(condition, program);
                     program.push(Instruction::JumpIfNotZero(body_label));
                 }
@@ -153,9 +173,35 @@ impl CompilationContext {
                     self.compile_expr(expr, program);
                     program.push(Instruction::Store(var.clone()));
                 }
-                Statement::Call { .. } => todo!(),
+                Statement::Call { name, args } => {
+                    let target = self.gen_named_label(name);
+
+                    for arg in args {
+                        self.compile_expr(arg, program);
+                    }
+
+                    program.push(Instruction::Call(target))
+                },
             }
         }
+    }
+
+    fn compile_function(&mut self, function: &Function, program: &mut Program) {
+        let Function { name, args, locals, body } = function;
+        let label = self.gen_named_label(name);
+
+        program.push(Instruction::Label(label));
+        program.push(Instruction::Begin {
+            args: args.clone(),
+            locals: locals.clone(),
+        });
+
+        for arg in args.iter().rev() {
+            program.push(Instruction::Store(arg.clone()));
+        }
+
+        self.compile_statements(body, program);
+        program.push(Instruction::End);
     }
 }
 
@@ -168,43 +214,97 @@ pub fn compile(statements: &statement::Program) -> Result<Program> {
         .get(statements.entry)
         .ok_or("No main function found (sm::compile)")?;
 
-    context.compile_into(&main.body, &mut program);
-    program.push(Instruction::Leave);
+    context.compile_function(main, &mut program);
 
-    for (i, _function) in statements.functions.iter().enumerate() {
+    for (i, function) in statements.functions.iter().enumerate() {
         if i == statements.entry {
             continue;
         }
 
-        // compile_function()
+        context.compile_function(function, &mut program);
     }
 
     Ok(program)
 }
 
+type Vars = HashMap<Var, Int>;
+
+struct SMMemory<M> {
+    globals: M,
+    locals: Vec<(HashSet<Var>, Vars)>
+}
+
+impl<M> SMMemory<M> {
+    fn push_scope(&mut self, vars: HashSet<Var>) {
+        self.locals.push((vars, Vars::new()));
+    }
+
+    fn pop_scope(&mut self) {
+        self.locals.pop();
+    }
+}
+
+impl<M: Memory> SMMemory<M> {
+    fn storage(&self, name: &Var) -> &dyn Memory {
+        match self.locals.last() {
+            Some((names, ref values)) if names.contains(name) => values,
+            _ => &self.globals
+        }
+    }
+
+    fn storage_mut(&mut self, name: &Var) -> &mut dyn Memory {
+        match self.locals.last_mut() {
+            Some((names, ref mut values)) if names.contains(name) => values,
+            _ => &mut self.globals
+        }
+    }
+}
+
+impl<M> Memory for SMMemory<M> where M: Memory {
+    fn load(&self, name: &Var) -> Option<Int> {
+        self.storage(name).load(name)
+    }
+
+    fn store(&mut self, name: &Var, value: Int) {
+        self.storage_mut(name).store(name, value);
+    }
+
+    fn scope(&mut self, local_names: HashSet<Var>) -> Scope {
+        Scope::new(&mut self.globals, local_names)
+    }
+}
+
 pub struct StackMachine<'a, M, I, O> {
-    memory: &'a mut M,
+    memory: SMMemory<&'a mut M>,
     input: &'a mut I,
     output: &'a mut O,
     stack: Stack,
+    control_stack: Vec<Label /* return address */>
 }
 
-impl<'a, M, I, O> StackMachine<'a, M, I, O>
+enum Retcode {
+    Continue,
+    Jump(Label),
+    Return,
+}
+
+impl<M, I, O> StackMachine<'_, M, I, O>
 where
     M: Memory,
     I: InputStream,
     O: OutputStream,
 {
-    pub fn new<'b>(
-        memory: &'b mut M,
-        input: &'b mut I,
-        output: &'b mut O,
-    ) -> StackMachine<'b, M, I, O> {
+    pub fn new<'a>(
+        memory: &'a mut M,
+        input: &'a mut I,
+        output: &'a mut O,
+    ) -> StackMachine<'a, M, I, O> {
         StackMachine {
-            memory,
+            memory: SMMemory { globals: memory, locals: Vec::new() },
             input,
             output,
             stack: Stack::new(),
+            control_stack: Vec::new(),
         }
     }
 
@@ -216,26 +316,25 @@ where
         self.stack.pop()
     }
 
-    fn execute(&mut self, instruction: &Instruction, labels: &Labels) -> Result<Option<usize>> {
+    fn execute(&mut self, instruction: &Instruction, labels: &Labels, pc: Label) -> Result<Retcode> {
         match instruction {
-            Instruction::Leave => { /* todo, ignore for now */ }
             Instruction::Label(_) => { /* ignore */ }
             Instruction::Jump(label) => {
                 let location = labels.get(label).ok_or("Invalid label (jump)")?;
-                return Ok(Some(*location));
+                return Ok(Retcode::Jump(*location));
             }
             Instruction::JumpIfZero(label) => {
                 let v = self.pop().ok_or("Empty stack (jz)")?;
                 if v == 0 {
                     let location = labels.get(label).ok_or("Invalid label (jz)")?;
-                    return Ok(Some(*location));
+                    return Ok(Retcode::Jump(*location));
                 }
             }
             Instruction::JumpIfNotZero(label) => {
                 let v = self.pop().ok_or("Empty stack (jnz)")?;
                 if v != 0 {
                     let location = labels.get(label).ok_or("Invalid label (jnz)")?;
-                    return Ok(Some(*location));
+                    return Ok(Retcode::Jump(*location));
                 }
             }
             Instruction::Op(op) => {
@@ -269,20 +368,35 @@ where
             Instruction::Store(var) => {
                 let value = self.pop().ok_or("Empty stack (store)")?;
                 self.memory.store(var, value);
+            },
+            Instruction::Call(location) => {
+                self.control_stack.push(pc + 1);
+                return Ok(Retcode::Jump(*location))
+            },
+            Instruction::Begin { args, locals } => {
+                let local_names = args.iter().chain(locals.iter()).cloned().collect();
+                self.memory.push_scope(local_names);
+            }
+            Instruction::End => {
+                self.memory.pop_scope();
+                match self.control_stack.pop() {
+                    Some(location) => return Ok(Retcode::Jump(location)),
+                    None => return Ok(Retcode::Return)
+                }
             }
         };
 
-        Ok(None)
+        Ok(Retcode::Continue)
     }
 
     pub fn run(&mut self, program: &Program) -> Result<()> {
         let mut pc = 0;
         while pc < program.instructions.len() {
-            if let Some(location) = self.execute(&program.instructions[pc], &program.labels)? {
-                pc = location;
-            } else {
-                pc += 1;
-            }
+            match self.execute(&program.instructions[pc], &program.labels, pc)? {
+                Retcode::Continue => pc += 1,
+                Retcode::Jump(location) => pc = location,
+                Retcode::Return => return Ok(())
+            };
         }
 
         Ok(())

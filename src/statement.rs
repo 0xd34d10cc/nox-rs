@@ -124,7 +124,6 @@ impl Program {
         I: InputStream,
         O: OutputStream,
     {
-        println!("{:?}", statement);
         match statement {
             Statement::Skip => { /* do nothing */ }
             Statement::IfElse {
@@ -181,15 +180,14 @@ impl Program {
                     .into());
                 }
 
-                let local_names = target.locals.iter().chain(target.args.iter()).cloned();
-                memory.scope(local_names, |memory| {
-                    for (e, arg) in args.iter().zip(target.args.iter()) {
-                        let value = e.eval(memory)?;
-                        memory.store(arg, value);
-                    }
+                let args: Vec<_> = args.iter().map(|arg| arg.eval(memory)).collect();
+                let local_names = target.locals.iter().chain(target.args.iter()).cloned().collect();
+                let mut scope = memory.scope(local_names);
+                for (arg, value) in target.args.iter().zip(args.into_iter()) {
+                    scope.store(arg, value?);
+                }
 
-                    self.execute_all(&target.body, memory, input, output)
-                })?;
+                self.execute_all(&target.body, &mut scope, input, output)?;
             }
         };
 
@@ -224,7 +222,7 @@ pub mod parse {
     use nom::branch::alt;
     use nom::bytes::complete::{tag, take_while};
     use nom::combinator::{map, opt};
-    use nom::multi::{fold_many0, many0, separated_list, separated_nonempty_list};
+    use nom::multi::{many0, separated_list, separated_nonempty_list};
     use nom::sequence::{delimited, preceded};
     use nom::IResult;
 
@@ -318,37 +316,8 @@ pub mod parse {
     }
 
     pub fn program(input: &[u8]) -> IResult<&[u8], Program> {
-        // let (input, main) = statements(input)?;
-        // Ok((input, Program {
-        //     functions: vec![
-        //         Function {
-        //             name: "main".to_string(),
-        //             args: Vec::new(),
-        //             locals: Vec::new(),
-        //             body: convert(main),
-        //         }
-        //     ],
-        //     entry: 0
-        // }))
-        enum Parsed {
-            Statements(Vec<Statement>),
-            Function(Function),
-        }
-
-        let (input, (main, mut fns)) = fold_many0(
-            alt((
-                map(function, Parsed::Function),
-                map(statements, Parsed::Statements),
-            )),
-            (Vec::new(), Vec::new()),
-            |(mut main, mut fns), item| {
-                match item {
-                    Parsed::Statements(statements) => main.extend(statements.into_iter()),
-                    Parsed::Function(f) => fns.push(f),
-                };
-                (main, fns)
-            },
-        )(input)?;
+        let (input, mut fns) = many0(function)(input)?;
+        let (input, main) = statements(input)?;
 
         let entry = fns.len();
         fns.push(Function {
