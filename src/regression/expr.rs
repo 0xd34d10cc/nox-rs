@@ -20,7 +20,7 @@ fn eval(expr: Expr, memory: &Context) -> Int {
     let result_var = Var::from("RESULT");
 
     // then in statements language
-    let (s, mut program) = {
+    let (s, program) = {
         let mut main = Vec::new();
         for (name, value) in memory.iter() {
             let set_var = Statement::Assign(name.to_string(), Expr::Const(*value));

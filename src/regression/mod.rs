@@ -10,7 +10,7 @@ mod deep_expressions;
 mod generated;
 
 use crate::context::{Env, InputStream, OutputStream};
-use crate::jit::{self, Runtime};
+// use crate::jit::{self, Runtime};
 use crate::sm::{self, StackMachine};
 use crate::statement;
 use crate::types::Int;
@@ -20,6 +20,7 @@ struct SharedInput {
     inner: Rc<RefCell<Vec<Int>>>,
 }
 
+#[allow(unused)]
 impl SharedInput {
     fn new(values: Vec<Int>) -> Self {
         SharedInput {
@@ -43,6 +44,7 @@ struct SharedOutput {
     inner: Rc<RefCell<Vec<Int>>>,
 }
 
+#[allow(unused)]
 impl SharedOutput {
     fn new(values: Vec<Int>) -> Self {
         SharedOutput {

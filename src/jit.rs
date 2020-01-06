@@ -219,7 +219,7 @@ impl fmt::Display for Globals {
 }
 
 impl Globals {
-    #[cfg(test)]
+    #[allow(unused)]
     pub fn load(&self, var: &Var) -> Option<Int> {
         let index = self.map.get(var)?;
         Some(self.values[*index] as i64)
