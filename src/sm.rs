@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::error::Error;
 
-use crate::context::ExecutionContext;
+use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
 use crate::ops::{LogicOp, Op};
 use crate::statement::{self, Statement};
-use crate::types::{Int, Var};
+use crate::types::{Int, Result, Var};
 
 pub type Label = usize;
 type Labels = HashMap<Label, usize>; // Label -> instruction index
@@ -24,6 +23,7 @@ pub enum Instruction {
     Write,
     Load(Var),
     Store(Var),
+    Leave,
 }
 
 pub struct Program {
@@ -91,7 +91,7 @@ impl CompilationContext {
         }
     }
 
-    fn compile_into(&mut self, statements: &statement::Program, program: &mut Program) {
+    fn compile_into(&mut self, statements: &[Statement], program: &mut Program) {
         for statement in statements {
             match statement {
                 Statement::Skip => { /* do nothing, successfully */ }
@@ -153,30 +153,57 @@ impl CompilationContext {
                     self.compile_expr(expr, program);
                     program.push(Instruction::Store(var.clone()));
                 }
+                Statement::Call { .. } => todo!(),
             }
         }
     }
 }
 
 // convert from statement ast to list of stack machine instructions
-pub fn compile(statements: &statement::Program) -> Program {
+pub fn compile(statements: &statement::Program) -> Result<Program> {
     let mut program = Program::new();
-    CompilationContext::new().compile_into(statements, &mut program);
-    program
+    let mut context = CompilationContext::new();
+    let main = statements
+        .functions
+        .get(statements.entry)
+        .ok_or("No main function found (sm::compile)")?;
+
+    context.compile_into(&main.body, &mut program);
+    program.push(Instruction::Leave);
+
+    for (i, _function) in statements.functions.iter().enumerate() {
+        if i == statements.entry {
+            continue;
+        }
+
+        // compile_function()
+    }
+
+    Ok(program)
 }
 
-pub struct StackMachine<C> {
-    context: C,
+pub struct StackMachine<'a, M, I, O> {
+    memory: &'a mut M,
+    input: &'a mut I,
+    output: &'a mut O,
     stack: Stack,
 }
 
-impl<C> StackMachine<C>
+impl<'a, M, I, O> StackMachine<'a, M, I, O>
 where
-    C: ExecutionContext,
+    M: Memory,
+    I: InputStream,
+    O: OutputStream,
 {
-    pub fn new(context: C) -> Self {
+    pub fn new<'b>(
+        memory: &'b mut M,
+        input: &'b mut I,
+        output: &'b mut O,
+    ) -> StackMachine<'b, M, I, O> {
         StackMachine {
-            context,
+            memory,
+            input,
+            output,
             stack: Stack::new(),
         }
     }
@@ -189,12 +216,9 @@ where
         self.stack.pop()
     }
 
-    fn execute(
-        &mut self,
-        instruction: &Instruction,
-        labels: &Labels,
-    ) -> Result<Option<usize>, Box<dyn Error>> {
+    fn execute(&mut self, instruction: &Instruction, labels: &Labels) -> Result<Option<usize>> {
         match instruction {
+            Instruction::Leave => { /* todo, ignore for now */ }
             Instruction::Label(_) => { /* ignore */ }
             Instruction::Jump(label) => {
                 let location = labels.get(label).ok_or("Invalid label (jump)")?;
@@ -228,30 +252,30 @@ where
             }
             Instruction::Const(n) => self.push(*n),
             Instruction::Read => {
-                let value = self.context.read().ok_or("No input (read)")?;
+                let value = self.input.read().ok_or("No input (read)")?;
                 self.push(value);
             }
             Instruction::Write => {
                 let value = self.pop().ok_or("Empty stack (write)")?;
-                self.context.write(value);
+                self.output.write(value);
             }
             Instruction::Load(var) => {
                 let value = self
-                    .context
-                    .get(var)
+                    .memory
+                    .load(var)
                     .ok_or_else(|| format!("Variable {} is not defined", var))?;
                 self.push(value);
             }
             Instruction::Store(var) => {
                 let value = self.pop().ok_or("Empty stack (store)")?;
-                self.context.set(var, value);
+                self.memory.store(var, value);
             }
         };
 
         Ok(None)
     }
 
-    pub fn run(&mut self, program: &Program) -> Result<(), Box<dyn Error>> {
+    pub fn run(&mut self, program: &Program) -> Result<()> {
         let mut pc = 0;
         while pc < program.instructions.len() {
             if let Some(location) = self.execute(&program.instructions[pc], &program.labels)? {

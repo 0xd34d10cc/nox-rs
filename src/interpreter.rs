@@ -8,7 +8,7 @@ use crate::context::Env;
 use crate::expr::Expr;
 use crate::jit::{self, Runtime};
 use crate::sm;
-use crate::statement::{self, Statement};
+use crate::statement;
 use crate::types::Var;
 
 pub enum InputLine {
@@ -35,7 +35,11 @@ impl InputLine {
             .map_err(|e| format!("Failed to parse input line: {:?}", e))?;
 
         if !rest.is_empty() {
-            return Err(format!("Incomplete parse: {}", std::str::from_utf8(rest).unwrap()).into());
+            return Err(format!(
+                "Incomplete parse of command: {}",
+                std::str::from_utf8(rest).unwrap()
+            )
+            .into());
         }
 
         Ok(line)
@@ -43,50 +47,48 @@ impl InputLine {
 }
 
 pub struct Interpreter {
-    context: (Env, Stdin, Stdout),
+    memory: Env,
+    input: Stdin,
+    output: Stdout,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
-            context: (Env::new(), io::stdin(), io::stdout()),
+            memory: Env::new(),
+            input: io::stdin(),
+            output: io::stdout(),
         }
     }
 
     pub fn execute(&mut self, line: InputLine) -> Result<(), Box<dyn Error>> {
         match line {
             InputLine::Delete(var) => {
-                if self.context.0.remove(&var).is_none() {
+                if self.memory.delete(&var).is_none() {
                     println!("No such variable: {}", var);
                 }
             }
-            InputLine::ResetEnv => self.context.0.clear(),
-            InputLine::ShowEnv => println!("{:?}", self.context.0),
+            InputLine::ResetEnv => self.memory.clear(),
+            InputLine::ShowEnv => println!("{:?}", self.memory),
             InputLine::ShowExpr(e) => println!("{:?}", e),
-            InputLine::RunExpr(e) => println!("{}", e.eval(&self.context.0)?),
-            InputLine::ShowStatements(p) => {
-                for statement in p {
-                    match statement {
-                        Statement::IfElse { .. } | Statement::While { .. } => {
-                            println!("{:#?}", statement)
-                        }
-                        _ => println!("{:?}", statement),
-                    };
-                }
+            InputLine::RunExpr(e) => println!("{}", e.eval(&self.memory)?),
+            InputLine::ShowStatements(p) => println!("{:#?}", p),
+            InputLine::RunStatements(p) => {
+                p.run(&mut self.memory, &mut self.input, &mut self.output)?
             }
-            InputLine::RunStatements(p) => statement::run(&p, &mut self.context)?,
             InputLine::ShowSMInstructions(p) => {
-                for instruction in sm::compile(&p).instructions() {
+                for instruction in sm::compile(&p)?.instructions() {
                     println!("{:?}", instruction)
                 }
             }
             InputLine::RunSMInstructions(p) => {
-                let p = sm::compile(&p);
-                let mut machine = sm::StackMachine::new(&mut self.context);
+                let p = sm::compile(&p)?;
+                let mut machine =
+                    sm::StackMachine::new(&mut self.memory, &mut self.input, &mut self.output);
                 machine.run(&p)?;
             }
             InputLine::ShowJITAsm(p) => {
-                let p = sm::compile(&p);
+                let p = sm::compile(&p)?;
                 let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
                 println!("Memory map:\n{}", p.globals());
                 for instruction in p.disassemble() {
@@ -94,7 +96,7 @@ impl Interpreter {
                 }
             }
             InputLine::RunJIT(p) => {
-                let p = sm::compile(&p);
+                let p = sm::compile(&p)?;
                 let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
                 let retcode = p.run();
                 if retcode != 0 {

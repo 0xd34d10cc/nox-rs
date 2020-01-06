@@ -8,48 +8,65 @@ fn parse(input: &str) -> Expr {
     Expr::parse(input.as_bytes()).unwrap()
 }
 
-fn eval(expr: Expr, context: &Context) -> Int {
+fn eval(expr: Expr, memory: &Context) -> Int {
     use crate::context::Memory;
     use crate::sm::{self, Instruction, StackMachine};
     use crate::statement::{self, Statement};
     use crate::types::Var;
 
     // first evaluate expr in expression language
-    let e = expr.eval(context).unwrap();
+    let e = expr.eval(memory).unwrap();
+
+    let result_var = Var::from("RESULT");
 
     // then in statements language
-    let mut program = statement::Program::new();
-    for (name, value) in context.iter() {
-        let set_var = Statement::Assign(name.to_string(), Expr::Const(*value));
-        program.push(set_var);
-    }
-    program.push(Statement::Assign(Var::from("RESULT"), expr));
+    let (s, program) = {
+        let mut main = Vec::new();
+        for (name, value) in memory.globals() {
+            let set_var = Statement::Assign(name.to_string(), Expr::Const(*value));
+            main.push(set_var);
+        }
+        main.push(Statement::Assign(result_var.clone(), expr));
 
-    let mut context = (Context::new(), (), ());
-    statement::run(&program, &mut context).unwrap();
-    let s = context.get("RESULT").unwrap();
+        let program = statement::Program::from_main(main);
+        let mut memory = Context::new();
+        let mut input = ();
+        let mut output = ();
+        program.run(&mut memory, &mut input, &mut output).unwrap();
+        let s = memory.load(&result_var).unwrap();
+        (s, program)
+    };
     assert_eq!(e, s);
 
     // then using state machine instructions
-    let mut program = sm::compile(&program);
-    program.push(Instruction::Load(Var::from("RESULT")));
+    let (sm, program) = {
+        let mut program = sm::compile(&program).unwrap();
+        program.push(Instruction::Load(result_var.clone()));
 
-    let mut machine = StackMachine::new((Context::new(), (), ()));
-    machine.run(&program).unwrap();
-    let sm = machine.pop().unwrap();
-    assert_eq!(machine.pop(), None); // stack should be empty
+        let mut memory = Context::new();
+        let mut input = ();
+        let mut output = ();
+        let mut machine = StackMachine::new(&mut memory, &mut input, &mut output);
+        machine.run(&program).unwrap();
+        let sm = machine.pop().unwrap();
+        assert_eq!(machine.pop(), None); // stack should be empty
+        (sm, program)
+    };
     assert_eq!(s, sm);
 
     // then via JIT
-    let program = crate::jit::Compiler::new()
-        .compile(&program, crate::jit::Runtime::stdio())
-        .unwrap();
-    let retcode = program.run();
-    let jit = program.globals().load(&Var::from("RESULT"));
-    assert_eq!(retcode, 0);
-    assert_eq!(jit, Some(sm));
+    let jit = {
+        let program = crate::jit::Compiler::new()
+            .compile(&program, crate::jit::Runtime::stdio())
+            .unwrap();
+        let retcode = program.run();
+        let jit = program.globals().load(&result_var).unwrap();
+        assert_eq!(retcode, 0);
+        jit
+    };
+    assert_eq!(jit, sm);
 
-    sm
+    jit
 }
 
 fn make_context(variables: &[(&str, Int)]) -> Context {

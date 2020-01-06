@@ -62,31 +62,46 @@ impl OutputStream for SharedOutput {
 }
 
 pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
-    let program = statement::parse(program.trim().as_bytes()).unwrap();
     let inputs = stdin.iter().rev().cloned().collect::<Vec<Int>>();
-    let mut context = (Env::new(), inputs.clone(), Vec::new());
-    statement::run(&program, &mut context).unwrap();
-    let (_, i, o) = context;
+
+    // statements
+    let (i, o, program) = {
+        let program = statement::Program::parse(program.trim().as_bytes()).unwrap();
+        let mut memory = Env::new();
+        let mut input = inputs.clone();
+        let mut output = Vec::new();
+        program.run(&mut memory, &mut input, &mut output).unwrap();
+        (input, output, program)
+    };
     assert_eq!(stdin.len() - i.len(), reads);
     assert_eq!(o, stdout);
 
-    let program = sm::compile(&program);
-    let mut context = (Env::new(), inputs.clone(), Vec::new());
-    let mut machine = StackMachine::new(&mut context);
-    machine.run(&program).unwrap();
-    assert_eq!(machine.pop(), None);
-    let (_, i, o) = context;
+    // stack machine
+    let (i, o, program) = {
+        let program = sm::compile(&program).unwrap();
+        let mut memory = Env::new();
+        let mut input = inputs.clone();
+        let mut output = Vec::new();
+        let mut machine = StackMachine::new(&mut memory, &mut input, &mut output);
+        machine.run(&program).unwrap();
+        assert_eq!(machine.pop(), None);
+        (input, output, program)
+    };
     assert_eq!(stdin.len() - i.len(), reads);
     assert_eq!(o, stdout);
 
-    let mut inputs = SharedInput::new(inputs);
-    let mut outputs = SharedOutput::new(Vec::new());
-    let rt = Runtime::new(Box::new(inputs.clone()), Box::new(outputs.clone()));
-    let program = jit::Compiler::new().compile(&program, rt).unwrap();
-    let retcode = program.run();
-    let i = inputs.take();
-    let o = outputs.take();
-    assert_eq!(retcode, 0);
+    // JIT
+    let (i, o) = {
+        let mut inputs = SharedInput::new(inputs);
+        let mut outputs = SharedOutput::new(Vec::new());
+        let rt = Runtime::new(Box::new(inputs.clone()), Box::new(outputs.clone()));
+        let program = jit::Compiler::new().compile(&program, rt).unwrap();
+        let retcode = program.run();
+        let i = inputs.take();
+        let o = outputs.take();
+        assert_eq!(retcode, 0);
+        (i, o)
+    };
     assert_eq!(stdin.len() - i.len(), reads);
     assert_eq!(o, stdout);
 }
