@@ -181,7 +181,12 @@ impl Program {
                 }
 
                 let args: Vec<_> = args.iter().map(|arg| arg.eval(memory)).collect();
-                let local_names = target.locals.iter().chain(target.args.iter()).cloned().collect();
+                let local_names = target
+                    .locals
+                    .iter()
+                    .chain(target.args.iter())
+                    .cloned()
+                    .collect();
                 let mut scope = memory.scope(local_names);
                 for (arg, value) in target.args.iter().zip(args.into_iter()) {
                     scope.store(arg, value?);
@@ -472,7 +477,7 @@ pub mod parse {
         let (input, args) =
             delimited(key("("), separated_list(key(","), variable), key(")"))(input)?;
         let (input, locals) =
-            opt(preceded(key("locals"), separated_list(key(","), variable)))(input)?;
+            opt(preceded(key("local"), separated_list(key(","), variable)))(input)?;
         let (input, body) = delimited(key("{"), statements, key("}"))(input)?;
         Ok((
             input,

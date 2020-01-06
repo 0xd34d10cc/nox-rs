@@ -9,7 +9,10 @@ pub trait Memory {
     fn scope(&mut self, vars: HashSet<Var>) -> Scope;
 }
 
-impl<M> Memory for &mut M where M: Memory {
+impl<M> Memory for &mut M
+where
+    M: Memory,
+{
     fn load(&self, name: &Var) -> Option<Int> {
         <M as Memory>::load(self, name)
     }
@@ -26,7 +29,7 @@ impl<M> Memory for &mut M where M: Memory {
 pub struct Scope<'a> {
     globals: &'a mut dyn Memory,
     local_names: HashSet<Var>,
-    locals: Env
+    locals: Env,
 }
 
 impl Scope<'_> {
@@ -34,7 +37,7 @@ impl Scope<'_> {
         Scope {
             globals,
             local_names,
-            locals: Env::new()
+            locals: Env::new(),
         }
     }
 }
@@ -43,8 +46,7 @@ impl<'a> Memory for Scope<'a> {
     fn load(&self, name: &Var) -> Option<Int> {
         if self.local_names.contains(name) {
             self.locals.get(name).copied()
-        }
-        else {
+        } else {
             self.globals.load(name)
         }
     }
@@ -52,8 +54,7 @@ impl<'a> Memory for Scope<'a> {
     fn store(&mut self, name: &Var, value: Int) {
         if self.local_names.contains(name) {
             self.locals.insert(name.clone(), value);
-        }
-        else {
+        } else {
             self.globals.store(name, value);
         }
     }

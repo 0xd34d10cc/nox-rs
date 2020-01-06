@@ -1,9 +1,9 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 
-use crate::context::{InputStream, Memory, Scope, OutputStream};
+use crate::context::{InputStream, Memory, OutputStream, Scope};
 use crate::expr::Expr;
 use crate::ops::{LogicOp, Op};
-use crate::statement::{self, Statement, Function};
+use crate::statement::{self, Function, Statement};
 use crate::types::{Int, Result, Var};
 
 pub type Label = usize;
@@ -24,10 +24,7 @@ pub enum Instruction {
     Load(Var),
     Store(Var),
     Call(Label),
-    Begin {
-        args: Vec<Var>,
-        locals: Vec<Var>,
-    },
+    Begin { args: Vec<Var>, locals: Vec<Var> },
     End,
 }
 
@@ -79,13 +76,11 @@ impl CompilationContext {
     }
 
     fn gen_named_label(&mut self, name: &Var) -> Label {
-        self.labels.get(name)
-            .copied()
-            .unwrap_or_else(|| {
-                let label = self.gen_label();
-                self.labels.insert(name.clone(), label);
-                label
-            })
+        self.labels.get(name).copied().unwrap_or_else(|| {
+            let label = self.gen_label();
+            self.labels.insert(name.clone(), label);
+            label
+        })
     }
 
     // generate local (unnamed) label
@@ -181,13 +176,18 @@ impl CompilationContext {
                     }
 
                     program.push(Instruction::Call(target))
-                },
+                }
             }
         }
     }
 
     fn compile_function(&mut self, function: &Function, program: &mut Program) {
-        let Function { name, args, locals, body } = function;
+        let Function {
+            name,
+            args,
+            locals,
+            body,
+        } = function;
         let label = self.gen_named_label(name);
 
         program.push(Instruction::Label(label));
@@ -196,6 +196,8 @@ impl CompilationContext {
             locals: locals.clone(),
         });
 
+        // args are passed through stack in reversed order
+        // (because they are pushed in direct order)
         for arg in args.iter().rev() {
             program.push(Instruction::Store(arg.clone()));
         }
@@ -231,7 +233,7 @@ type Vars = HashMap<Var, Int>;
 
 struct SMMemory<M> {
     globals: M,
-    locals: Vec<(HashSet<Var>, Vars)>
+    locals: Vec<(HashSet<Var>, Vars)>,
 }
 
 impl<M> SMMemory<M> {
@@ -248,19 +250,22 @@ impl<M: Memory> SMMemory<M> {
     fn storage(&self, name: &Var) -> &dyn Memory {
         match self.locals.last() {
             Some((names, ref values)) if names.contains(name) => values,
-            _ => &self.globals
+            _ => &self.globals,
         }
     }
 
     fn storage_mut(&mut self, name: &Var) -> &mut dyn Memory {
         match self.locals.last_mut() {
             Some((names, ref mut values)) if names.contains(name) => values,
-            _ => &mut self.globals
+            _ => &mut self.globals,
         }
     }
 }
 
-impl<M> Memory for SMMemory<M> where M: Memory {
+impl<M> Memory for SMMemory<M>
+where
+    M: Memory,
+{
     fn load(&self, name: &Var) -> Option<Int> {
         self.storage(name).load(name)
     }
@@ -279,7 +284,7 @@ pub struct StackMachine<'a, M, I, O> {
     input: &'a mut I,
     output: &'a mut O,
     stack: Stack,
-    control_stack: Vec<Label /* return address */>
+    control_stack: Vec<Label /* return address */>,
 }
 
 enum Retcode {
@@ -300,7 +305,10 @@ where
         output: &'a mut O,
     ) -> StackMachine<'a, M, I, O> {
         StackMachine {
-            memory: SMMemory { globals: memory, locals: Vec::new() },
+            memory: SMMemory {
+                globals: memory,
+                locals: Vec::new(),
+            },
             input,
             output,
             stack: Stack::new(),
@@ -316,7 +324,12 @@ where
         self.stack.pop()
     }
 
-    fn execute(&mut self, instruction: &Instruction, labels: &Labels, pc: Label) -> Result<Retcode> {
+    fn execute(
+        &mut self,
+        instruction: &Instruction,
+        labels: &Labels,
+        pc: Label,
+    ) -> Result<Retcode> {
         match instruction {
             Instruction::Label(_) => { /* ignore */ }
             Instruction::Jump(label) => {
@@ -368,11 +381,12 @@ where
             Instruction::Store(var) => {
                 let value = self.pop().ok_or("Empty stack (store)")?;
                 self.memory.store(var, value);
-            },
-            Instruction::Call(location) => {
+            }
+            Instruction::Call(label) => {
                 self.control_stack.push(pc + 1);
-                return Ok(Retcode::Jump(*location))
-            },
+                let location = labels.get(label).ok_or("Invalid label (call)")?;
+                return Ok(Retcode::Jump(*location));
+            }
             Instruction::Begin { args, locals } => {
                 let local_names = args.iter().chain(locals.iter()).cloned().collect();
                 self.memory.push_scope(local_names);
@@ -381,7 +395,7 @@ where
                 self.memory.pop_scope();
                 match self.control_stack.pop() {
                     Some(location) => return Ok(Retcode::Jump(location)),
-                    None => return Ok(Retcode::Return)
+                    None => return Ok(Retcode::Return),
                 }
             }
         };
@@ -395,7 +409,7 @@ where
             match self.execute(&program.instructions[pc], &program.labels, pc)? {
                 Retcode::Continue => pc += 1,
                 Retcode::Jump(location) => pc = location,
-                Retcode::Return => return Ok(())
+                Retcode::Return => return Ok(()),
             };
         }
 

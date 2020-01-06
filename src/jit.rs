@@ -627,7 +627,7 @@ impl Compiler {
                         dst.load_from(Register::RAX, ops);
                     }
                 }
-            },
+            }
             sm::Instruction::Call(_) => todo!(),
             sm::Instruction::Begin { .. } => todo!(),
             sm::Instruction::End => todo!(),
