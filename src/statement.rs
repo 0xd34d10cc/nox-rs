@@ -1,6 +1,6 @@
 use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
-use crate::types::{Result, Var};
+use crate::types::{Result, Var, Int};
 
 // abstract statement
 #[derive(Debug, Clone)]
@@ -26,6 +26,7 @@ pub enum Statement {
         name: Var,
         args: Vec<Expr>,
     },
+    Return(Option<Expr>),
 }
 
 #[derive(Debug, Clone)]
@@ -79,51 +80,75 @@ impl Program {
         Ok(program)
     }
 
-    pub fn run<M, I, O>(&self, memory: &mut M, input: &mut I, output: &mut O) -> Result<()>
-    where
-        M: Memory,
-        I: InputStream,
-        O: OutputStream,
+    pub fn run<I, O>(&self, memory: &mut Memory, input: &mut I, output: &mut O) -> Result<Option<Int>>
+        where I: InputStream,
+              O: OutputStream,
     {
-        let main = self
+        ExecutionContext::new(memory, input, output).run(self)
+    }
+}
+
+enum Retcode {
+    Continue,
+    Return(Option<Int>)
+}
+
+struct ExecutionContext<'a, I, O> {
+    memory: &'a mut Memory,
+    input: &'a mut I,
+    output: &'a mut O
+}
+
+impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
+    pub fn new<'a>(memory: &'a mut Memory, input: &'a mut I, output: &'a mut O) -> ExecutionContext<'a, I, O> {
+        ExecutionContext {
+            memory,
+            input,
+            output
+        }
+    }
+
+    pub fn run(&mut self, program: &Program) -> Result<Option<Int>> {
+        let main = program
             .functions
-            .get(self.entry)
+            .get(program.entry)
             .ok_or("No main function found")?;
 
-        self.execute_all(&main.body, memory, input, output)
+        self.execute_function(program, main, &[])
     }
 
-    fn execute_all<M, I, O>(
-        &self,
-        statements: &[Statement],
-        memory: &mut M,
-        input: &mut I,
-        output: &mut O,
-    ) -> Result<()>
-    where
-        M: Memory,
-        I: InputStream,
-        O: OutputStream,
-    {
-        for statement in statements {
-            self.execute(statement, memory, input, output)?;
+    fn execute_function(&mut self, program: &Program, target: &Function, args: &[Int]) -> Result<Option<Int>> {
+        let local_names = target.args.iter().chain(target.locals.iter()).cloned().collect();
+        self.memory.push_scope(local_names);
+
+        for (name, value) in target.args.iter().zip(args.iter()) {
+            self.memory.store(name, *value);
         }
 
-        Ok(())
+        let e = self.execute_all(program, &target.body)?;
+        self.memory.pop_scope();
+        Ok(e)
     }
 
-    fn execute<M, I, O>(
-        &self,
+    fn execute_all(
+        &mut self,
+        program: &Program,
+        statements: &[Statement],
+    ) -> Result<Option<Int>> {
+        for statement in statements {
+            if let Retcode::Return(e) = self.execute(statement, program)? {
+                return Ok(e);
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn execute(
+        &mut self,
         statement: &Statement,
-        memory: &mut M,
-        input: &mut I,
-        output: &mut O,
-    ) -> Result<()>
-    where
-        M: Memory,
-        I: InputStream,
-        O: OutputStream,
-    {
+        program: &Program,
+    ) -> Result<Retcode> {
         match statement {
             Statement::Skip => { /* do nothing */ }
             Statement::IfElse {
@@ -131,40 +156,40 @@ impl Program {
                 if_true,
                 if_false,
             } => {
-                let c = condition.eval(memory)?;
+                let c = condition.eval(self.memory)?;
                 if c != 0 {
-                    self.execute_all(if_true, memory, input, output)?;
+                    self.execute_all(program, if_true)?;
                 } else {
-                    self.execute_all(if_false, memory, input, output)?;
+                    self.execute_all(program, if_false)?;
                 }
             }
             Statement::While { condition, body } => {
-                while condition.eval(memory)? != 0 {
-                    self.execute_all(body, memory, input, output)?;
+                while condition.eval(self.memory)? != 0 {
+                    self.execute_all(program, body)?;
                 }
             }
             Statement::DoWhile { body, condition } => loop {
-                self.execute_all(body, memory, input, output)?;
-                if condition.eval(memory)? == 0 {
+                self.execute_all(program, body)?;
+                if condition.eval(self.memory)? == 0 {
                     break;
                 }
             },
             Statement::Assign(name, value) => {
-                let value = value.eval(memory)?;
-                memory.store(name, value);
+                let value = value.eval(self.memory)?;
+                self.memory.store(name, value);
             }
             Statement::Read(name) => {
-                let value = input
+                let value = self.input
                     .read()
                     .ok_or_else(|| format!("Failed to read {}: no input", name))?;
-                memory.store(name, value);
+                self.memory.store(name, value);
             }
             Statement::Write(expr) => {
-                let value = expr.eval(memory)?;
-                output.write(value);
+                let value = expr.eval(self.memory)?;
+                self.output.write(value);
             }
             Statement::Call { name, args } => {
-                let target = self
+                let target = program
                     .functions
                     .iter()
                     .find(|f| &f.name == name)
@@ -180,23 +205,24 @@ impl Program {
                     .into());
                 }
 
-                let args: Vec<_> = args.iter().map(|arg| arg.eval(memory)).collect();
-                let local_names = target
-                    .locals
-                    .iter()
-                    .chain(target.args.iter())
-                    .cloned()
-                    .collect();
-                let mut scope = memory.scope(local_names);
-                for (arg, value) in target.args.iter().zip(args.into_iter()) {
-                    scope.store(arg, value?);
-                }
+                let args: Vec<_> = args.iter()
+                    .map(|arg| arg.eval(self.memory))
+                    .collect::<Result<_>>()?;
 
-                self.execute_all(&target.body, &mut scope, input, output)?;
+                self.execute_function(program, target, &args)?;
+            },
+            Statement::Return(e) => {
+                let retval = if let Some(e) = e {
+                    Some(e.eval(&self.memory)?)
+                } else {
+                    None
+                };
+
+                return Ok(Retcode::Return(retval));
             }
         };
 
-        Ok(())
+        Ok(Retcode::Continue)
     }
 }
 
@@ -261,6 +287,7 @@ pub mod parse {
             name: Var,
             args: Vec<Expr>,
         },
+        Return(Option<Expr>)
     }
 
     fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
@@ -317,6 +344,7 @@ pub mod parse {
             Statement::Read(into) => program.push(super::Statement::Read(into)),
             Statement::Write(e) => program.push(super::Statement::Write(e)),
             Statement::Call { name, args } => program.push(super::Statement::Call { name, args }),
+            Statement::Return(e) => program.push(super::Statement::Return(e))
         }
     }
 
@@ -354,6 +382,7 @@ pub mod parse {
                 for_,
                 repeat_until,
                 if_else,
+                return_,
                 assign,
                 read,
                 write,
@@ -446,6 +475,11 @@ pub mod parse {
 
     fn else_(input: &[u8]) -> IResult<&[u8], Vec<Statement>> {
         preceded(key("else"), statements)(input)
+    }
+
+    fn return_(input: &[u8]) -> IResult<&[u8], Statement> {
+        let (input, e) = preceded(key("return "), opt(expr))(input)?;
+        Ok((input, Statement::Return(e)))
     }
 
     fn assign(input: &[u8]) -> IResult<&[u8], Statement> {

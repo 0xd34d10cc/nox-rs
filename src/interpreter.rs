@@ -4,7 +4,7 @@ use std::io::{self, Stdin, Stdout};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-use crate::context::Env;
+use crate::context::Memory;
 use crate::expr::Expr;
 use crate::jit::{self, Runtime};
 use crate::sm;
@@ -47,7 +47,7 @@ impl InputLine {
 }
 
 pub struct Interpreter {
-    memory: Env,
+    memory: Memory,
     input: Stdin,
     output: Stdout,
 }
@@ -55,7 +55,7 @@ pub struct Interpreter {
 impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
-            memory: Env::new(),
+            memory: Memory::new(),
             input: io::stdin(),
             output: io::stdout(),
         }
@@ -64,7 +64,7 @@ impl Interpreter {
     pub fn execute(&mut self, line: InputLine) -> Result<(), Box<dyn Error>> {
         match line {
             InputLine::Delete(var) => {
-                if self.memory.remove(&var).is_none() {
+                if self.memory.globals_mut().remove(&var).is_none() {
                     println!("No such variable: {}", var);
                 }
             }
@@ -74,7 +74,9 @@ impl Interpreter {
             InputLine::RunExpr(e) => println!("{}", e.eval(&self.memory)?),
             InputLine::ShowStatements(p) => println!("{:#?}", p),
             InputLine::RunStatements(p) => {
-                p.run(&mut self.memory, &mut self.input, &mut self.output)?
+                if let Some(val) = p.run(&mut self.memory, &mut self.input, &mut self.output)? {
+                    println!("Return code: {}", val);
+                }
             }
             InputLine::ShowSMInstructions(p) => {
                 for instruction in sm::compile(&p)?.instructions() {

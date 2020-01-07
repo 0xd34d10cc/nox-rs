@@ -34,7 +34,7 @@ impl Expr {
         Ok(e)
     }
 
-    pub fn eval<M: Memory>(&self, memory: &M) -> Result<Int> {
+    pub fn eval(&self, memory: &Memory) -> Result<Int> {
         match self {
             Expr::Var(name) => {
                 let val = memory

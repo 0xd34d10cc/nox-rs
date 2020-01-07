@@ -3,64 +3,64 @@ use std::io::{self, Stdin, Stdout, Write};
 
 use crate::types::{Int, Var};
 
-pub trait Memory {
-    fn load(&self, name: &Var) -> Option<Int>;
-    fn store(&mut self, name: &Var, value: Int);
-    fn scope(&mut self, vars: HashSet<Var>) -> Scope;
+type Vars = HashMap<Var, Int>;
+
+#[derive(Debug)]
+pub struct Memory {
+    globals: Vars,
+    locals: Vec<(HashSet<Var>, Vars)>
 }
 
-impl<M> Memory for &mut M
-where
-    M: Memory,
-{
-    fn load(&self, name: &Var) -> Option<Int> {
-        <M as Memory>::load(self, name)
-    }
-
-    fn store(&mut self, name: &Var, value: Int) {
-        <M as Memory>::store(self, name, value)
-    }
-
-    fn scope(&mut self, vars: HashSet<Var>) -> Scope {
-        <M as Memory>::scope(self, vars)
-    }
-}
-
-pub struct Scope<'a> {
-    globals: &'a mut dyn Memory,
-    local_names: HashSet<Var>,
-    locals: Env,
-}
-
-impl Scope<'_> {
-    pub fn new<'a>(globals: &'a mut dyn Memory, local_names: HashSet<Var>) -> Scope<'a> {
-        Scope {
-            globals,
-            local_names,
-            locals: Env::new(),
-        }
-    }
-}
-
-impl<'a> Memory for Scope<'a> {
-    fn load(&self, name: &Var) -> Option<Int> {
-        if self.local_names.contains(name) {
-            self.locals.get(name).copied()
-        } else {
-            self.globals.load(name)
+impl Memory {
+    pub fn new() -> Self {
+        Memory {
+            globals: Vars::new(),
+            locals: Vec::new(),
         }
     }
 
-    fn store(&mut self, name: &Var, value: Int) {
-        if self.local_names.contains(name) {
-            self.locals.insert(name.clone(), value);
-        } else {
-            self.globals.store(name, value);
+    #[cfg(test)]
+    pub fn globals(&self) -> &Vars {
+        &self.globals
+    }
+
+    pub fn globals_mut(&mut self) -> &mut Vars {
+        &mut self.globals
+    }
+
+    pub fn clear(&mut self) {
+        self.globals.clear();
+        self.locals.clear();
+    }
+
+    pub fn push_scope(&mut self, local_names: HashSet<Var>) {
+        self.locals.push((local_names, Vars::new()));
+    }
+
+    pub fn pop_scope(&mut self) {
+        self.locals.pop();
+    }
+
+    pub fn load(&self, name: &Var) -> Option<Int> {
+        self.storage(name).get(name).copied()
+    }
+
+    pub fn store(&mut self, name: &Var, value: Int) {
+        self.storage_mut(name).insert(name.clone(), value);
+    }
+
+    fn storage(&self, name: &Var) -> &Vars {
+        match self.locals.last() {
+            Some((local_names, ref vars)) if local_names.contains(name) => vars,
+            _ => &self.globals
         }
     }
 
-    fn scope(&mut self, local_names: HashSet<Var>) -> Scope {
-        Scope::new(self.globals, local_names)
+    fn storage_mut(&mut self, name: &Var) -> &mut Vars {
+        match self.locals.last_mut() {
+            Some((local_names, ref mut vars)) if local_names.contains(name) => vars,
+            _ => &mut self.globals,
+        }
     }
 }
 
@@ -70,22 +70,6 @@ pub trait InputStream {
 
 pub trait OutputStream {
     fn write(&mut self, value: Int);
-}
-
-pub type Env = HashMap<Var, Int>;
-
-impl Memory for Env {
-    fn load(&self, name: &Var) -> Option<Int> {
-        self.get(name).copied()
-    }
-
-    fn store(&mut self, name: &Var, value: Int) {
-        self.insert(name.clone(), value);
-    }
-
-    fn scope(&mut self, local_names: HashSet<Var>) -> Scope {
-        Scope::new(self, local_names)
-    }
 }
 
 // IO streams implementations
@@ -118,12 +102,14 @@ impl OutputStream for Vec<Int> {
     }
 }
 
-impl InputStream for () {
+pub struct EmptyInput;
+impl InputStream for EmptyInput {
     fn read(&mut self) -> Option<Int> {
         None
     }
 }
 
-impl OutputStream for () {
+pub struct IgnoreOutput;
+impl OutputStream for IgnoreOutput {
     fn write(&mut self, _: Int) {}
 }
