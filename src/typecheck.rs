@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use snafu::Snafu;
 
+use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
 use crate::statement::{self, Function, Statement};
-use crate::context::{Memory, InputStream, OutputStream};
-use crate::types::{self, Var, Int};
+use crate::types::{self, Int, Var};
 
 #[derive(Debug, Snafu)]
 pub enum Warning {
@@ -16,7 +16,7 @@ pub enum Warning {
     UnusedVariable { name: Var },
 }
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, PartialEq, Eq)]
 pub enum Error {
     #[snafu(display("No entry function"))]
     NoEntryFunction,
@@ -63,12 +63,20 @@ impl Program {
         self.program.entry().unwrap() // typechecked
     }
 
-    pub fn functions(&self) -> impl Iterator<Item=&Function> {
+    pub fn functions(&self) -> impl Iterator<Item = &Function> {
         self.program.functions()
     }
 
-    pub fn run<I, O>(&self, memory: &mut Memory, input: &mut I, output: &mut O) -> types::Result<Option<Int>>
-        where I: InputStream, O:OutputStream {
+    pub fn run<I, O>(
+        &self,
+        memory: &mut Memory,
+        input: &mut I,
+        output: &mut O,
+    ) -> types::Result<Option<Int>>
+    where
+        I: InputStream,
+        O: OutputStream,
+    {
         self.program.run(memory, input, output)
     }
 }
@@ -77,10 +85,7 @@ pub fn check(program: statement::Program) -> Result<(Vec<Warning>, Program)> {
     let (warnings, functions) = InitChecker::new(&program).check()?;
     let (warnings, functions) = ControlFlowChecker::new(&program, functions, warnings).check()?;
 
-    let program = Program {
-        program,
-        functions,
-    };
+    let program = Program { program, functions };
 
     Ok((warnings, program))
 }
@@ -315,10 +320,11 @@ impl InitChecker<'_> {
             Statement::Read(x) => self.symbols.initialize(x),
             Statement::Write(e) => self.check_expr(e)?,
             Statement::Call { name, args } => {
-                self.check_call(name, args.len())?;
                 for arg in args {
                     self.check_expr(arg)?;
                 }
+
+                self.check_call(name, args.len())?;
             }
             Statement::Return(e) => {
                 if let Some(e) = e {
@@ -362,7 +368,11 @@ struct ControlFlowChecker<'a> {
 }
 
 impl ControlFlowChecker<'_> {
-    fn new<'a>(program: &'a statement::Program, functions: HashMap<Var, bool>, warnings: Vec<Warning>) -> ControlFlowChecker<'a> {
+    fn new<'a>(
+        program: &'a statement::Program,
+        functions: HashMap<Var, bool>,
+        warnings: Vec<Warning>,
+    ) -> ControlFlowChecker<'a> {
         ControlFlowChecker {
             program,
             functions: functions,
@@ -446,9 +456,15 @@ impl ControlFlowChecker<'_> {
                 }
                 Statement::Return(e) => {
                     if e.is_some() != should_return {
-                        return Err(Error::ReturnWithoutValue {
-                            name: Var::from(name)
-                        });
+                        if should_return {
+                            return Err(Error::ReturnWithoutValue {
+                                name: Var::from(name),
+                            });
+                        } else {
+                            return Err(Error::NotAllControlPathsReturn {
+                                name: Var::from(name),
+                            });
+                        }
                     }
                 }
                 Statement::DoWhile { body, .. } | Statement::While { body, .. } => {
