@@ -9,6 +9,7 @@ use crate::jit::{self, Runtime};
 use crate::sm;
 use crate::statement;
 use crate::types::Var;
+use crate::typecheck;
 
 pub enum Command {
     Delete(Var),
@@ -27,13 +28,13 @@ pub enum Command {
 
 impl Command {
     fn parse(line: &str) -> Result<Command, Box<dyn Error>> {
-        let (rest, line) = parse::input_line(line.as_bytes())
-            .map_err(|e| format!("Failed to parse input line: {:?}", e))?;
+        let (rest, line) = parse::input_line(line)
+            .map_err(|e| crate::nom::format_err(e, "command", line))?;
 
         if !rest.is_empty() {
             return Err(format!(
                 "Incomplete parse of command: {}",
-                std::str::from_utf8(rest).unwrap()
+                rest
             )
             .into());
         }
@@ -68,6 +69,7 @@ impl Interpreter {
             Command::ShowEnv => println!("{:?}", self.memory),
             Command::ShowStatements(p) => println!("{:#?}", p),
             Command::RunStatements(p) => {
+                typecheck::check(&p)?;
                 if let Some(val) = p.run(&mut self.memory, &mut self.input, &mut self.output)? {
                     println!("Return code: {}", val);
                 }
@@ -78,6 +80,7 @@ impl Interpreter {
                 }
             }
             Command::RunSMInstructions(p) => {
+                typecheck::check(&p)?;
                 let p = sm::compile(&p)?;
                 let mut machine =
                     sm::StackMachine::new(&mut self.memory, &mut self.input, &mut self.output);
@@ -92,6 +95,7 @@ impl Interpreter {
                 }
             }
             Command::RunJIT(p) => {
+                typecheck::check(&p)?;
                 let p = sm::compile(&p)?;
                 let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
                 let retcode = p.run();
@@ -162,18 +166,14 @@ mod parse {
     use super::Command;
     use crate::statement::parse::program;
     use crate::types::parse::variable;
+    use crate::nom::{Parsed, Input, spaces};
 
     use nom::branch::alt;
-    use nom::bytes::complete::{tag, take_while};
+    use nom::bytes::complete::tag;
     use nom::combinator::map;
     use nom::sequence::preceded;
-    use nom::IResult;
 
-    fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
-        take_while(|c| (c as char).is_whitespace())(input)
-    }
-
-    pub fn input_line(input: &[u8]) -> IResult<&[u8], Command> {
+    pub fn input_line(input: Input) -> Parsed<Command> {
         alt((
             command(":del", map(variable, Command::Delete)),
             command(":reset", map(spaces, |_| Command::ResetEnv)),
@@ -188,9 +188,9 @@ mod parse {
         ))(input)
     }
 
-    fn command<'a, P>(prefix: &'a str, parser: P) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], Command>
+    fn command<'a, P>(prefix: &'a str, parser: P) -> impl Fn(Input<'a>) -> Parsed<Command>
     where
-        P: Fn(&'a [u8]) -> IResult<&'a [u8], Command>,
+        P: Fn(Input<'a>) -> Parsed<Command>,
     {
         preceded(tag(prefix), parser)
     }

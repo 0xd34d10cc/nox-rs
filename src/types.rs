@@ -1,6 +1,4 @@
-use std::error::Error;
-
-pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub type Int = i64;
 pub type Var = String;
 
@@ -9,13 +7,9 @@ pub mod parse {
     use nom::bytes::complete::{take_while, take_while1};
     use nom::combinator::{map_res, verify};
     use nom::sequence::preceded;
-    use nom::IResult;
+    use crate::nom::{Parsed, Input, spaces};
 
-    fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
-        take_while(|c| (c as char).is_whitespace())(input)
-    }
-
-    pub fn is_keyword(s: &str) -> bool {
+    fn is_keyword(s: &str) -> bool {
         match s {
             "if" | "fi" | "elif" | "else" | "do" | "od" | "while" | "for" | "repeat" | "until"
             | "skip" | "write" | "read" | "main" => true,
@@ -23,23 +17,21 @@ pub mod parse {
         }
     }
 
-    pub fn variable(input: &[u8]) -> IResult<&[u8], Var> {
+    pub fn variable(input: Input) -> Parsed<Var> {
         verify(preceded(spaces, identifier), |v| !is_keyword(&v))(input)
     }
 
-    fn identifier(input: &[u8]) -> IResult<&[u8], Var> {
-        let (input, first) = take_while1(|c| (c as char).is_alphabetic() || c == b'_')(input)?;
-        let (input, second) = take_while(|c| (c as char).is_alphanumeric() || c == b'_')(input)?;
-        let first = std::str::from_utf8(first).unwrap();
-        let second = std::str::from_utf8(second).unwrap();
+    fn identifier(input: Input) -> Parsed<Var> {
+        let (input, first) = take_while1(|c: char| c.is_alphabetic() || c == '_')(input)?;
+        let (input, second) = take_while(|c: char| c.is_alphanumeric() || c == '_')(input)?;
         let name = Var::from(first) + second;
         Ok((input, name))
     }
 
-    pub fn integer(input: &[u8]) -> IResult<&[u8], Int> {
+    pub fn integer(input: Input) -> Parsed<Int> {
         let (input, _) = spaces(input)?;
-        let (input, n) = map_res(take_while1(|c| (c as char).is_numeric()), |number| {
-            std::str::from_utf8(number).unwrap().parse::<Int>()
+        let (input, n) = map_res(take_while1::<_, Input, _>(|c| c.is_numeric()), |number| {
+            number.parse::<Int>()
         })(input)?;
 
         Ok((input, n))

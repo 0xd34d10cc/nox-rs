@@ -9,7 +9,9 @@ mod ops;
 mod regression;
 mod sm;
 mod statement;
+mod typecheck;
 mod types;
+mod nom;
 
 use std::error::Error;
 

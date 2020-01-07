@@ -58,25 +58,23 @@ impl Program {
     }
 
     #[cfg(test)]
-    pub fn parse(input: &[u8]) -> Result<Program> {
-        let (rest, program) = parse::program(input).map_err(|e| {
-            format!(
-                "Failed to parse statement {}: {:?}",
-                String::from_utf8_lossy(input),
-                e
-            )
-        })?;
+    pub fn compile(input: crate::nom::Input) -> Result<Program> {
+        use crate::typecheck;
+
+        let (rest, program) = parse::program(input)
+            .map_err(|e| crate::nom::format_err(e, "program", input))?;
 
         if !rest.is_empty() {
             return Err(format!(
                 "Incomplete parse of statement\nProgram: {:?}\nOriginal: \n{}\nRest: \n{}",
                 program,
-                String::from_utf8_lossy(input),
-                String::from_utf8_lossy(rest)
+                input,
+                rest,
             )
             .into());
         }
 
+        typecheck::check(&program)?;
         Ok(program)
     }
 
@@ -284,13 +282,13 @@ pub mod parse {
     use crate::expr::parse::expr;
     use crate::ops::LogicOp;
     use crate::types::parse::variable;
+    use crate::nom::{Parsed, Input, key, spaces};
 
     use nom::branch::alt;
-    use nom::bytes::complete::{tag, take_while};
+    use nom::bytes::complete::tag;
     use nom::combinator::{map, opt};
     use nom::multi::{many0, separated_list, separated_nonempty_list};
     use nom::sequence::{delimited, preceded};
-    use nom::IResult;
 
     // local statement enum, for concrete syntax only
     #[derive(Debug, Clone)]
@@ -323,10 +321,6 @@ pub mod parse {
             args: Vec<Expr>,
         },
         Return(Option<Expr>),
-    }
-
-    fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
-        take_while(|c| (c as char).is_whitespace())(input)
     }
 
     fn convert(statements: Vec<Statement>) -> Vec<super::Statement> {
@@ -383,7 +377,7 @@ pub mod parse {
         }
     }
 
-    pub fn program(input: &[u8]) -> IResult<&[u8], Program> {
+    pub fn program(input: Input) -> Parsed<Program> {
         let (input, mut fns) = many0(function)(input)?;
         let (input, main) = statements(input)?;
 
@@ -404,11 +398,11 @@ pub mod parse {
         ))
     }
 
-    fn statements(input: &[u8]) -> IResult<&[u8], Vec<Statement>> {
+    fn statements(input: Input) -> Parsed<Vec<Statement>> {
         separated_nonempty_list(key(";"), statement)(input)
     }
 
-    fn statement(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn statement(input: Input) -> Parsed<Statement> {
         preceded(
             spaces,
             alt((
@@ -426,21 +420,17 @@ pub mod parse {
         )(input)
     }
 
-    fn key<'a>(key: &'a str) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], &'a [u8]> {
-        preceded(spaces, tag(key))
-    }
-
-    fn skip(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn skip(input: Input) -> Parsed<Statement> {
         map(tag("skip"), |_| Statement::Skip)(input)
     }
 
-    fn while_(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn while_(input: Input) -> Parsed<Statement> {
         let (input, condition) = preceded(key("while"), expr)(input)?;
         let (input, body) = delimited(key("do"), statements, key("od"))(input)?;
         Ok((input, Statement::While { condition, body }))
     }
 
-    fn for_(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn for_(input: Input) -> Parsed<Statement> {
         let (input, init) = preceded(key("for"), statement)(input)?;
         let (input, condition) = preceded(key(","), expr)(input)?;
         let (input, post_step) = preceded(key(","), statement)(input)?;
@@ -456,13 +446,13 @@ pub mod parse {
         ))
     }
 
-    fn repeat_until(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn repeat_until(input: Input) -> Parsed<Statement> {
         let (input, body) = preceded(key("repeat"), statements)(input)?;
         let (input, condition) = preceded(key("until"), expr)(input)?;
         Ok((input, Statement::RepeatUntil { body, condition }))
     }
 
-    fn if_else(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn if_else(input: Input) -> Parsed<Statement> {
         let (input, root_condition) = preceded(key("if"), expr)(input)?;
         let (input, if_true) = preceded(key("then"), statements)(input)?;
         let (input, mut elifs) = many0(elif)(input)?;
@@ -502,46 +492,46 @@ pub mod parse {
         Ok((input, if_else))
     }
 
-    fn elif(input: &[u8]) -> IResult<&[u8], (Expr, Vec<Statement>)> {
+    fn elif(input: Input) -> Parsed<(Expr, Vec<Statement>)> {
         let (input, condition) = preceded(key("elif"), expr)(input)?;
         let (input, body) = preceded(key("then"), statements)(input)?;
         Ok((input, (condition, body)))
     }
 
-    fn else_(input: &[u8]) -> IResult<&[u8], Vec<Statement>> {
+    fn else_(input: Input) -> Parsed<Vec<Statement>> {
         preceded(key("else"), statements)(input)
     }
 
-    fn return_(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn return_(input: Input) -> Parsed<Statement> {
         let (input, e) = preceded(key("return "), opt(expr))(input)?;
         Ok((input, Statement::Return(e)))
     }
 
-    fn assign(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn assign(input: Input) -> Parsed<Statement> {
         let (input, var) = variable(input)?;
         let (input, e) = preceded(key(":="), expr)(input)?;
         Ok((input, Statement::Assign(var, e)))
     }
 
-    fn read(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn read(input: Input) -> Parsed<Statement> {
         let (input, _) = key("read")(input)?;
         let (input, var) = delimited(key("("), variable, key(")"))(input)?;
         Ok((input, Statement::Read(var)))
     }
 
-    fn write(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn write(input: Input) -> Parsed<Statement> {
         let (input, _) = key("write")(input)?;
         let (input, e) = delimited(key("("), expr, key(")"))(input)?;
         Ok((input, Statement::Write(e)))
     }
 
-    fn call(input: &[u8]) -> IResult<&[u8], Statement> {
+    fn call(input: Input) -> Parsed<Statement> {
         let (input, name) = variable(input)?;
         let (input, args) = delimited(key("("), separated_list(key(","), expr), key(")"))(input)?;
         Ok((input, Statement::Call { name, args }))
     }
 
-    fn function(input: &[u8]) -> IResult<&[u8], Function> {
+    fn function(input: Input) -> Parsed<Function> {
         let (input, name) = preceded(key("fun "), variable)(input)?;
         let (input, args) =
             delimited(key("("), separated_list(key(","), variable), key(")"))(input)?;

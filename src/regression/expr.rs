@@ -5,7 +5,7 @@ type Expr = crate::expr::Expr;
 type Context = crate::context::Memory;
 
 fn parse(input: &str) -> Expr {
-    Expr::parse(input.as_bytes()).unwrap()
+    Expr::parse(input).unwrap()
 }
 
 fn eval(expr: Expr, memory: &Context) -> Int {
