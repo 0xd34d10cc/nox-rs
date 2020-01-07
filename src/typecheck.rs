@@ -69,6 +69,10 @@ impl Symbols {
         self.locals.pop();
     }
 
+    pub fn globals(&self) -> &Vars {
+        &self.globals
+    }
+
     pub fn locals(&self) -> Option<&Vars> {
         self.locals.last()
     }
@@ -139,6 +143,14 @@ impl TypeChecker<'_> {
             if !self.checked_functions.contains(&function.name) {
                 self.warnings.push(Warning::UnusedFunction {
                     name: function.name.clone()
+                });
+            }
+        }
+
+        for (name, state) in self.symbols.globals() {
+            if !state.referenced {
+                self.warnings.push(Warning::UnusedVariable {
+                    name: name.clone()
                 });
             }
         }

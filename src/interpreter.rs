@@ -70,7 +70,13 @@ impl Interpreter {
             Command::ShowEnv => println!("{:?}", self.memory),
             Command::ShowStatements(p) => println!("{:#?}", p),
             Command::RunStatements(p) => {
-                typecheck::check(&p)?;
+                let warnings = typecheck::check(&p)?;
+                if !warnings.is_empty() {
+                    for warning in warnings {
+                        println!("Warning: {}", warning);
+                    }
+                }
+
                 if let Some(val) = p.run(&mut self.memory, &mut self.input, &mut self.output)? {
                     println!("Return code: {}", val);
                 }
@@ -81,7 +87,13 @@ impl Interpreter {
                 }
             }
             Command::RunSMInstructions(p) => {
-                typecheck::check(&p)?;
+                let warnings = typecheck::check(&p)?;
+                if !warnings.is_empty() {
+                    for warning in warnings {
+                        println!("Warning: {}", warning);
+                    }
+                }
+
                 let p = sm::compile(&p)?;
                 let mut machine =
                     sm::StackMachine::new(&mut self.memory, &mut self.input, &mut self.output);
@@ -96,7 +108,13 @@ impl Interpreter {
                 }
             }
             Command::RunJIT(p) => {
-                typecheck::check(&p)?;
+                let warnings = typecheck::check(&p)?;
+                if !warnings.is_empty() {
+                    for warning in warnings {
+                        println!("Warning: {}", warning);
+                    }
+                }
+
                 let p = sm::compile(&p)?;
                 let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
                 let retcode = p.run();
