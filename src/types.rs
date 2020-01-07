@@ -18,7 +18,7 @@ pub mod parse {
     pub fn is_keyword(s: &str) -> bool {
         match s {
             "if" | "fi" | "elif" | "else" | "do" | "od" | "while" | "for" | "repeat" | "until"
-            | "skip" | "write" | "read" => true,
+            | "skip" | "write" | "read" | "main" => true,
             _ => false,
         }
     }
@@ -37,6 +37,7 @@ pub mod parse {
     }
 
     pub fn integer(input: &[u8]) -> IResult<&[u8], Int> {
+        let (input, _) = spaces(input)?;
         let (input, n) = map_res(take_while1(|c| (c as char).is_numeric()), |number| {
             std::str::from_utf8(number).unwrap().parse::<Int>()
         })(input)?;

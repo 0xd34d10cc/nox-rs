@@ -5,19 +5,15 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 use crate::context::Memory;
-use crate::expr::Expr;
 use crate::jit::{self, Runtime};
 use crate::sm;
 use crate::statement;
 use crate::types::Var;
 
-pub enum InputLine {
+pub enum Command {
     Delete(Var),
     ResetEnv,
     ShowEnv,
-
-    ShowExpr(Expr),
-    RunExpr(Expr),
 
     ShowStatements(statement::Program),
     RunStatements(statement::Program),
@@ -29,8 +25,8 @@ pub enum InputLine {
     RunJIT(statement::Program),
 }
 
-impl InputLine {
-    fn parse(line: &str) -> Result<InputLine, Box<dyn Error>> {
+impl Command {
+    fn parse(line: &str) -> Result<Command, Box<dyn Error>> {
         let (rest, line) = parse::input_line(line.as_bytes())
             .map_err(|e| format!("Failed to parse input line: {:?}", e))?;
 
@@ -61,35 +57,33 @@ impl Interpreter {
         }
     }
 
-    pub fn execute(&mut self, line: InputLine) -> Result<(), Box<dyn Error>> {
+    pub fn execute(&mut self, line: Command) -> Result<(), Box<dyn Error>> {
         match line {
-            InputLine::Delete(var) => {
+            Command::Delete(var) => {
                 if self.memory.globals_mut().remove(&var).is_none() {
                     println!("No such variable: {}", var);
                 }
             }
-            InputLine::ResetEnv => self.memory.clear(),
-            InputLine::ShowEnv => println!("{:?}", self.memory),
-            InputLine::ShowExpr(e) => println!("{:?}", e),
-            InputLine::RunExpr(e) => println!("{}", e.eval(&self.memory)?),
-            InputLine::ShowStatements(p) => println!("{:#?}", p),
-            InputLine::RunStatements(p) => {
+            Command::ResetEnv => self.memory.clear(),
+            Command::ShowEnv => println!("{:?}", self.memory),
+            Command::ShowStatements(p) => println!("{:#?}", p),
+            Command::RunStatements(p) => {
                 if let Some(val) = p.run(&mut self.memory, &mut self.input, &mut self.output)? {
                     println!("Return code: {}", val);
                 }
             }
-            InputLine::ShowSMInstructions(p) => {
+            Command::ShowSMInstructions(p) => {
                 for instruction in sm::compile(&p)?.instructions() {
                     println!("{:?}", instruction)
                 }
             }
-            InputLine::RunSMInstructions(p) => {
+            Command::RunSMInstructions(p) => {
                 let p = sm::compile(&p)?;
                 let mut machine =
                     sm::StackMachine::new(&mut self.memory, &mut self.input, &mut self.output);
                 machine.run(&p)?;
             }
-            InputLine::ShowJITAsm(p) => {
+            Command::ShowJITAsm(p) => {
                 let p = sm::compile(&p)?;
                 let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
                 println!("Memory map:\n{}", p.globals());
@@ -97,7 +91,7 @@ impl Interpreter {
                     println!("{}", instruction);
                 }
             }
-            InputLine::RunJIT(p) => {
+            Command::RunJIT(p) => {
                 let p = sm::compile(&p)?;
                 let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
                 let retcode = p.run();
@@ -121,7 +115,7 @@ impl Interpreter {
             match readline {
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
-                    match InputLine::parse(line.as_str()) {
+                    match Command::parse(line.as_str()) {
                         Ok(line) => {
                             if let Err(e) = self.execute(line) {
                                 println!("Failed to execute line: {}", e);
@@ -165,8 +159,7 @@ mod parse {
     // ShowJITAsm ::= :sj Statements
     // RunJIT ::= :rj Statements
 
-    use super::*;
-    use crate::expr::parse::expr;
+    use super::Command;
     use crate::statement::parse::program;
     use crate::types::parse::variable;
 
@@ -180,30 +173,27 @@ mod parse {
         take_while(|c| (c as char).is_whitespace())(input)
     }
 
-    pub fn input_line(input: &[u8]) -> IResult<&[u8], InputLine> {
+    pub fn input_line(input: &[u8]) -> IResult<&[u8], Command> {
         alt((
-            command(":del", map(variable, InputLine::Delete)),
-            command(":reset", map(spaces, |_| InputLine::ResetEnv)),
-            command(":env", map(spaces, |_| InputLine::ShowEnv)),
-            command(":re", map(expr, InputLine::RunExpr)),
-            command(":se", map(expr, InputLine::ShowExpr)),
-            command(":rsm", map(program, InputLine::RunSMInstructions)),
-            command(":ssm", map(program, InputLine::ShowSMInstructions)),
-            command(":rs", map(program, InputLine::RunStatements)),
-            command(":ss", map(program, InputLine::ShowStatements)),
-            command(":rj", map(program, InputLine::RunJIT)),
-            command(":sj", map(program, InputLine::ShowJITAsm)),
-            map(program, InputLine::RunStatements),
-            map(expr, InputLine::RunExpr),
+            command(":del", map(variable, Command::Delete)),
+            command(":reset", map(spaces, |_| Command::ResetEnv)),
+            command(":env", map(spaces, |_| Command::ShowEnv)),
+            command(":rsm", map(program, Command::RunSMInstructions)),
+            command(":ssm", map(program, Command::ShowSMInstructions)),
+            command(":rs", map(program, Command::RunStatements)),
+            command(":ss", map(program, Command::ShowStatements)),
+            command(":rj", map(program, Command::RunJIT)),
+            command(":sj", map(program, Command::ShowJITAsm)),
+            map(program, Command::RunStatements),
         ))(input)
     }
 
     fn command<'a, P>(
         prefix: &'a str,
         parser: P,
-    ) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], InputLine>
+    ) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], Command>
     where
-        P: Fn(&'a [u8]) -> IResult<&'a [u8], InputLine>,
+        P: Fn(&'a [u8]) -> IResult<&'a [u8], Command>,
     {
         preceded(tag(prefix), parser)
     }

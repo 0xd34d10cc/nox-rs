@@ -5,7 +5,7 @@ use crate::types::{Int, Var};
 
 type Vars = HashMap<Var, Int>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Memory {
     globals: Vars,
     locals: Vec<(HashSet<Var>, Vars)>

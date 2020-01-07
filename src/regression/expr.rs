@@ -10,12 +10,20 @@ fn parse(input: &str) -> Expr {
 
 fn eval(expr: Expr, memory: &Context) -> Int {
     use crate::sm::{self, StackMachine};
-    use crate::statement::{self, Statement};
+    use crate::statement::{self, Statement, ExecutionContext};
     use crate::context::{EmptyInput, IgnoreOutput};
     use crate::types::Var;
 
-    // first evaluate expr in expression language
-    let e = expr.eval(memory).unwrap();
+    let e = {
+        let program = statement::Program::from_main(Vec::new());
+        let mut mem = memory.clone();
+        let mut input = EmptyInput;
+        let mut output = IgnoreOutput;
+        let mut context = ExecutionContext::new(&program, &mut mem, &mut input, &mut output);
+        // first evaluate expr in expression language
+        let e = expr.eval(&mut context).unwrap();
+        e
+    };
 
     let result_var = Var::from("RESULT");
 

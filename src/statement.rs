@@ -40,7 +40,7 @@ pub struct Function {
 #[derive(Debug, Clone)]
 pub struct Program {
     pub functions: Vec<Function>,
-    pub entry: usize, /* index of "main" function */
+    pub entry: Var, /* name of "main" function */
 }
 
 impl Program {
@@ -48,12 +48,12 @@ impl Program {
     pub fn from_main(statements: Vec<Statement>) -> Self {
         Program {
             functions: vec![Function {
-                name: "main".to_string(),
+                name: "main".into(),
                 args: Vec::new(),
                 locals: Vec::new(),
                 body: statements,
             }],
-            entry: 0,
+            entry: "main".into(),
         }
     }
 
@@ -80,44 +80,72 @@ impl Program {
         Ok(program)
     }
 
+    pub fn entry(&self) -> Option<&Function> {
+        self.get(&self.entry)
+    }
+
+    pub fn functions(&self) -> impl Iterator<Item=&Function> {
+        let entry = self.entry.clone();
+        self.functions.iter().filter(move |f| f.name != entry)
+    }
+
+    pub fn get(&self, function: &Var) -> Option<&Function> {
+        self.functions.iter().find(|f| &f.name == function)
+    }
+
     pub fn run<I, O>(&self, memory: &mut Memory, input: &mut I, output: &mut O) -> Result<Option<Int>>
         where I: InputStream,
               O: OutputStream,
     {
-        ExecutionContext::new(memory, input, output).run(self)
+        ExecutionContext::new(self, memory, input, output)
+            .call(&self.entry, &[])
     }
 }
 
 enum Retcode {
-    Continue,
+    Finished,
     Return(Option<Int>)
 }
 
-struct ExecutionContext<'a, I, O> {
+pub struct ExecutionContext<'a, I, O> {
+    program: &'a Program,
     memory: &'a mut Memory,
     input: &'a mut I,
     output: &'a mut O
 }
 
 impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
-    pub fn new<'a>(memory: &'a mut Memory, input: &'a mut I, output: &'a mut O) -> ExecutionContext<'a, I, O> {
+    pub fn new<'a>(program: &'a Program, memory: &'a mut Memory, input: &'a mut I, output: &'a mut O) -> ExecutionContext<'a, I, O> {
         ExecutionContext {
+            program,
             memory,
             input,
             output
         }
     }
 
-    pub fn run(&mut self, program: &Program) -> Result<Option<Int>> {
-        let main = program
-            .functions
-            .get(program.entry)
-            .ok_or("No main function found")?;
-
-        self.execute_function(program, main, &[])
+    pub fn memory(&self) -> &Memory {
+        &self.memory
     }
 
-    fn execute_function(&mut self, program: &Program, target: &Function, args: &[Int]) -> Result<Option<Int>> {
+    pub fn call(&mut self, function: &Var, args: &[Int]) -> Result<Option<Int>> {
+        let target = self.program.get(function)
+            .ok_or_else(|| format!("Call to unknown function: {}", function))?;
+
+        if args.len() != target.args.len() {
+            return Err(format!(
+                "Invalid number of arguments in call to {}: expected {} found {}",
+                function,
+                target.args.len(),
+                args.len()
+            )
+            .into());
+        }
+
+        self.execute_function(&target, args)
+    }
+
+    fn execute_function(&mut self, target: &Function, args: &[Int]) -> Result<Option<Int>> {
         let local_names = target.args.iter().chain(target.locals.iter()).cloned().collect();
         self.memory.push_scope(local_names);
 
@@ -125,29 +153,30 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
             self.memory.store(name, *value);
         }
 
-        let e = self.execute_all(program, &target.body)?;
+        let e = match self.execute_all(&target.body)? {
+            Retcode::Finished => None,
+            Retcode::Return(e) => e,
+        };
         self.memory.pop_scope();
         Ok(e)
     }
 
     fn execute_all(
         &mut self,
-        program: &Program,
         statements: &[Statement],
-    ) -> Result<Option<Int>> {
+    ) -> Result<Retcode> {
         for statement in statements {
-            if let Retcode::Return(e) = self.execute(statement, program)? {
-                return Ok(e);
+            if let Retcode::Return(e) = self.execute(statement)? {
+                return Ok(Retcode::Return(e));
             }
         }
 
-        Ok(None)
+        Ok(Retcode::Finished)
     }
 
     fn execute(
         &mut self,
         statement: &Statement,
-        program: &Program,
     ) -> Result<Retcode> {
         match statement {
             Statement::Skip => { /* do nothing */ }
@@ -156,26 +185,31 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
                 if_true,
                 if_false,
             } => {
-                let c = condition.eval(self.memory)?;
+                let c = condition.eval(self)?;
                 if c != 0 {
-                    self.execute_all(program, if_true)?;
+                    return self.execute_all(if_true);
                 } else {
-                    self.execute_all(program, if_false)?;
-                }
+                    return self.execute_all(if_false);
+                };
             }
             Statement::While { condition, body } => {
-                while condition.eval(self.memory)? != 0 {
-                    self.execute_all(program, body)?;
+                while condition.eval(self)? != 0 {
+                    if let Retcode::Return(e) = self.execute_all(body)? {
+                        return Ok(Retcode::Return(e));
+                    }
                 }
             }
             Statement::DoWhile { body, condition } => loop {
-                self.execute_all(program, body)?;
-                if condition.eval(self.memory)? == 0 {
+                if let Retcode::Return(e) = self.execute_all(body)? {
+                    return Ok(Retcode::Return(e));
+                }
+
+                if condition.eval(self)? == 0 {
                     break;
                 }
             },
             Statement::Assign(name, value) => {
-                let value = value.eval(self.memory)?;
+                let value = value.eval(self)?;
                 self.memory.store(name, value);
             }
             Statement::Read(name) => {
@@ -185,35 +219,19 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
                 self.memory.store(name, value);
             }
             Statement::Write(expr) => {
-                let value = expr.eval(self.memory)?;
+                let value = expr.eval(self)?;
                 self.output.write(value);
             }
             Statement::Call { name, args } => {
-                let target = program
-                    .functions
-                    .iter()
-                    .find(|f| &f.name == name)
-                    .ok_or_else(|| format!("Call to unknown function: {}", name))?;
-
-                if target.args.len() != args.len() {
-                    return Err(format!(
-                        "Invalid number of arguments in call to {}: expected {} found {}",
-                        name,
-                        target.args.len(),
-                        args.len()
-                    )
-                    .into());
-                }
-
                 let args: Vec<_> = args.iter()
-                    .map(|arg| arg.eval(self.memory))
+                    .map(|arg| arg.eval(self))
                     .collect::<Result<_>>()?;
 
-                self.execute_function(program, target, &args)?;
+                self.call(name, &args)?;
             },
             Statement::Return(e) => {
                 let retval = if let Some(e) = e {
-                    Some(e.eval(&self.memory)?)
+                    Some(e.eval(self)?)
                 } else {
                     None
                 };
@@ -222,7 +240,7 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
             }
         };
 
-        Ok(Retcode::Continue)
+        Ok(Retcode::Finished)
     }
 }
 
@@ -352,9 +370,9 @@ pub mod parse {
         let (input, mut fns) = many0(function)(input)?;
         let (input, main) = statements(input)?;
 
-        let entry = fns.len();
+        let entry: Var = "main".into();
         fns.push(Function {
-            name: "main".into(),
+            name: entry.clone(),
             args: Vec::new(),
             locals: Vec::new(),
             body: convert(main),

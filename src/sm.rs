@@ -89,7 +89,7 @@ impl CompilationContext {
         self.label
     }
 
-    fn compile_expr(&self, e: &Expr, program: &mut Program) {
+    fn compile_expr(&mut self, e: &Expr, program: &mut Program) {
         match e {
             Expr::Const(n) => program.push(Instruction::Const(*n)),
             Expr::Var(var) => program.push(Instruction::Load(var.clone())),
@@ -102,6 +102,13 @@ impl CompilationContext {
                 self.compile_expr(lhs, program);
                 self.compile_expr(rhs, program);
                 program.push(Instruction::LogicOp(*op));
+            },
+            Expr::Call(name, args) => {
+                for arg in args {
+                    self.compile_expr(arg, program);
+                }
+                let label = self.gen_named_label(name);
+                program.push(Instruction::Call(label));
             }
         }
     }
@@ -217,18 +224,12 @@ impl CompilationContext {
 pub fn compile(statements: &statement::Program) -> Result<Program> {
     let mut program = Program::new();
     let mut context = CompilationContext::new();
-    let main = statements
-        .functions
-        .get(statements.entry)
+    let main = statements.entry()
         .ok_or("No main function found (sm::compile)")?;
 
     context.compile_function(main, &mut program);
 
-    for (i, function) in statements.functions.iter().enumerate() {
-        if i == statements.entry {
-            continue;
-        }
-
+    for function in statements.functions() {
         context.compile_function(function, &mut program);
     }
 
