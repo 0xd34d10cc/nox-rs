@@ -2,27 +2,35 @@
 
 type Int = crate::types::Int;
 type Expr = crate::expr::Expr;
-type Context = crate::context::Env;
+type Context = crate::context::Memory;
 
 fn parse(input: &str) -> Expr {
     Expr::parse(input.as_bytes()).unwrap()
 }
 
 fn eval(expr: Expr, memory: &Context) -> Int {
-    use crate::context::Memory;
     use crate::sm::{self, StackMachine};
-    use crate::statement::{self, Statement};
+    use crate::statement::{self, Statement, ExecutionContext};
+    use crate::context::{EmptyInput, IgnoreOutput};
     use crate::types::Var;
 
-    // first evaluate expr in expression language
-    let e = expr.eval(memory).unwrap();
+    let e = {
+        let program = statement::Program::from_main(Vec::new());
+        let mut mem = memory.clone();
+        let mut input = EmptyInput;
+        let mut output = IgnoreOutput;
+        let mut context = ExecutionContext::new(&program, &mut mem, &mut input, &mut output);
+        // first evaluate expr in expression language
+        let e = expr.eval(&mut context).unwrap();
+        e
+    };
 
     let result_var = Var::from("RESULT");
 
     // then in statements language
     let (s, program) = {
         let mut main = Vec::new();
-        for (name, value) in memory.iter() {
+        for (name, value) in memory.globals().iter() {
             let set_var = Statement::Assign(name.to_string(), Expr::Const(*value));
             main.push(set_var);
         }
@@ -30,8 +38,8 @@ fn eval(expr: Expr, memory: &Context) -> Int {
 
         let program = statement::Program::from_main(main);
         let mut memory = Context::new();
-        let mut input = ();
-        let mut output = ();
+        let mut input = EmptyInput;
+        let mut output = IgnoreOutput;
         program.run(&mut memory, &mut input, &mut output).unwrap();
         let s = memory.load(&result_var).unwrap();
         (s, program)
@@ -42,8 +50,8 @@ fn eval(expr: Expr, memory: &Context) -> Int {
     let (sm, _program) = {
         let program = sm::compile(&program).unwrap();
         let mut memory = Context::new();
-        let mut input = ();
-        let mut output = ();
+        let mut input = EmptyInput;
+        let mut output = IgnoreOutput;
         let mut machine = StackMachine::new(&mut memory, &mut input, &mut output);
         machine.run(&program).unwrap();
         assert_eq!(machine.pop(), None); // stack should be empty
@@ -69,10 +77,15 @@ fn eval(expr: Expr, memory: &Context) -> Int {
 }
 
 fn make_context(variables: &[(&str, Int)]) -> Context {
+    let mut memory = Context::new();
     variables
         .iter()
         .map(|(name, value)| (name.to_string(), *value))
-        .collect()
+        .for_each(|(name, value)| {
+            memory.store(&name, value)
+        });
+
+    memory
 }
 
 #[test]

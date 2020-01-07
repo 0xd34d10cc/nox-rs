@@ -9,7 +9,7 @@ mod deep_expressions;
 #[cfg(feature = "generated")]
 mod generated;
 
-use crate::context::{Env, InputStream, OutputStream};
+use crate::context::{Memory, InputStream, OutputStream};
 // use crate::jit::{self, Runtime};
 use crate::sm::{self, StackMachine};
 use crate::statement;
@@ -69,7 +69,7 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
     // statements
     let (i, o, program) = {
         let program = statement::Program::parse(program.trim().as_bytes()).unwrap();
-        let mut memory = Env::new();
+        let mut memory = Memory::new();
         let mut input = inputs.clone();
         let mut output = Vec::new();
         program.run(&mut memory, &mut input, &mut output).unwrap();
@@ -81,7 +81,7 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
     // stack machine
     let (i, o, _program) = {
         let program = sm::compile(&program).unwrap();
-        let mut memory = Env::new();
+        let mut memory = Memory::new();
         let mut input = inputs.clone();
         let mut output = Vec::new();
         let mut machine = StackMachine::new(&mut memory, &mut input, &mut output);

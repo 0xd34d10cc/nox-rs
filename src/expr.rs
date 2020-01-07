@@ -1,6 +1,7 @@
-use crate::context::Memory;
+use crate::statement::ExecutionContext;
 use crate::ops::{LogicOp, Op};
 use crate::types::{Int, Result, Var};
+use crate::context::{InputStream, OutputStream};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -8,6 +9,7 @@ pub enum Expr {
     Const(Int),
     Op(Op, Box<Expr>, Box<Expr>),
     LogicOp(LogicOp, Box<Expr>, Box<Expr>),
+    Call(Var, Vec<Expr>)
 }
 
 impl Expr {
@@ -34,26 +36,39 @@ impl Expr {
         Ok(e)
     }
 
-    pub fn eval<M: Memory>(&self, memory: &M) -> Result<Int> {
+    pub fn eval<I, O>(&self, context: &mut ExecutionContext<'_, I, O>) -> Result<Int>
+        where I: InputStream,
+              O: OutputStream
+    {
         match self {
             Expr::Var(name) => {
-                let val = memory
+                let val = context.memory()
                     .load(name)
                     .ok_or_else(|| format!("Variable {} is not defined", name))?;
                 Ok(val)
             }
             Expr::Const(v) => Ok(*v),
             Expr::Op(op, lhs, rhs) => {
-                let left = lhs.eval(memory)?;
-                let right = rhs.eval(memory)?;
+                let left = lhs.eval(context)?;
+                let right = rhs.eval(context)?;
                 let v = op.apply(left, right)?;
                 Ok(v)
             }
             Expr::LogicOp(op, lhs, rhs) => {
-                let left = lhs.eval(memory)?;
-                let right = rhs.eval(memory)?;
+                let left = lhs.eval(context)?;
+                let right = rhs.eval(context)?;
                 let v = op.apply(left, right);
                 Ok(Int::from(v))
+            },
+            Expr::Call(name, args) => {
+                let args: Vec<_> = args.iter()
+                    .map(|arg| arg.eval(context))
+                    .collect::<Result<_>>()?;
+
+                let retval = context.call(name, &args)?
+                    .ok_or_else(|| format!("Call to {} procedure inside expression", name))?;
+
+                Ok(retval)
             }
         }
     }
@@ -72,8 +87,9 @@ pub mod parse {
     //
     // Arithm ::= Term ('+' Term | '-' Term)*
     // Term ::= Factor ('*' Factor | '/' Factor | '%' Factor)*
-    // Factor ::= ['-'] (Var | Number | '(' Expr ')')
+    // Factor ::= ['-'] (Call | Var | Number | '(' Expr ')')
     //
+    // Call ::= Var '(' Expr* ')'
     // Number ::= Digit+
     // Var ::= Alpha (Alpha | Digit)*
 
@@ -83,20 +99,25 @@ pub mod parse {
     use nom::branch::alt;
     use nom::bytes::complete::{tag, take_while};
     use nom::combinator::{map, opt};
-    use nom::multi::fold_many0;
-    use nom::sequence::{preceded, tuple};
+    use nom::multi::{fold_many0, separated_list};
+    use nom::sequence::{preceded, delimited, pair};
     use nom::IResult;
 
     fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
         take_while(|c| (c as char).is_whitespace())(input)
     }
 
+    fn key<'a>(key: &'a str) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], &'a [u8]> {
+        preceded(spaces, tag(key))
+    }
+
     fn factor(input: &[u8]) -> IResult<&[u8], Expr> {
-        let (input, minus) = opt(tag(b"-"))(input)?;
+        let (input, minus) = opt(key("-"))(input)?;
         let (input, node) = alt((
+            call,
             map(variable, Expr::Var),
             map(integer, Expr::Const),
-            map(tuple((tag("("), expr, tag(")"))), |(_, e, _)| e),
+            delimited(key("("), expr, key(")")),
         ))(input)?;
 
         let node = if minus.is_some() {
@@ -108,8 +129,14 @@ pub mod parse {
         Ok((input, node))
     }
 
+    fn call(input: &[u8]) -> IResult<&[u8], Expr> {
+        let (input, name) = variable(input)?;
+        let (input, args) = delimited(key("("), separated_list(key(","), expr), key(")"))(input)?;
+        Ok((input, Expr::Call(name, args)))
+    }
+
     fn mul_div_or_mod(input: &[u8]) -> IResult<&[u8], Op> {
-        match alt((tag("*"), tag("/"), tag("%")))(input)? {
+        match alt((key("*"), key("/"), key("%")))(input)? {
             (input, b"*") => Ok((input, Op::Mul)),
             (input, b"/") => Ok((input, Op::Div)),
             (input, b"%") => Ok((input, Op::Mod)),
@@ -119,16 +146,15 @@ pub mod parse {
 
     fn term(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = factor(input)?;
-        let (input, _) = spaces(input)?;
         fold_many0(
-            tuple((mul_div_or_mod, spaces, factor, spaces)),
+            pair(mul_div_or_mod, factor),
             lhs,
-            |lhs, (op, _, rhs, _)| Expr::Op(op, Box::new(lhs), Box::new(rhs)),
+            |lhs, (op, rhs)| Expr::Op(op, Box::new(lhs), Box::new(rhs)),
         )(input)
     }
 
     fn add_or_sub(input: &[u8]) -> IResult<&[u8], Op> {
-        match alt((tag("+"), tag("-")))(input)? {
+        match alt((key("+"), key("-")))(input)? {
             (input, b"+") => Ok((input, Op::Add)),
             (input, b"-") => Ok((input, Op::Sub)),
             _ => unreachable!(),
@@ -137,32 +163,31 @@ pub mod parse {
 
     fn arithmetic(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = term(input)?;
-        let (input, _) = spaces(input)?;
         fold_many0(
-            tuple((add_or_sub, spaces, term, spaces)),
+            pair(add_or_sub, term),
             lhs,
-            |lhs, (op, _, rhs, _)| Expr::Op(op, Box::new(lhs), Box::new(rhs)),
+            |lhs, (op, rhs)| Expr::Op(op, Box::new(lhs), Box::new(rhs)),
         )(input)
     }
 
     fn disjunction_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
-        let (input, _) = alt((tag("!!"), tag("||")))(input)?;
+        let (input, _) = alt((key("!!"), key("||")))(input)?;
         Ok((input, LogicOp::Or))
     }
 
     fn conjunction_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
-        let (input, _) = tag("&&")(input)?;
+        let (input, _) = key("&&")(input)?;
         Ok((input, LogicOp::And))
     }
 
     fn comparison_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
         let (input, op) = alt((
-            tag("<="),
-            tag(">="),
-            tag("=="),
-            tag("!="),
-            tag("<"),
-            tag(">"),
+            key("<="),
+            key(">="),
+            key("=="),
+            key("!="),
+            key("<"),
+            key(">"),
         ))(input)?;
 
         let op = match op {
@@ -180,31 +205,28 @@ pub mod parse {
 
     fn comparison(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = arithmetic(input)?;
-        let (input, _) = spaces(input)?;
         fold_many0(
-            tuple((comparison_op, spaces, arithmetic, spaces)),
+            pair(comparison_op, arithmetic),
             lhs,
-            |lhs, (op, _, rhs, _)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
+            |lhs, (op, rhs)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
         )(input)
     }
 
     fn conjunction(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = comparison(input)?;
-        let (input, _) = spaces(input)?;
         fold_many0(
-            tuple((conjunction_op, spaces, comparison, spaces)),
+            pair(conjunction_op, comparison),
             lhs,
-            |lhs, (op, _, rhs, _)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
+            |lhs, (op, rhs)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
         )(input)
     }
 
     fn disjunction(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = conjunction(input)?;
-        let (input, _) = spaces(input)?;
         fold_many0(
-            tuple((disjunction_op, spaces, conjunction, spaces)),
+            pair(disjunction_op, conjunction),
             lhs,
-            |lhs, (op, _, rhs, _)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
+            |lhs, (op, rhs)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
         )(input)
     }
 

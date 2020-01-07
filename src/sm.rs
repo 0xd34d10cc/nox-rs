@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::context::{InputStream, Memory, OutputStream, Scope};
+use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
 use crate::ops::{LogicOp, Op};
 use crate::statement::{self, Function, Statement};
@@ -89,7 +89,7 @@ impl CompilationContext {
         self.label
     }
 
-    fn compile_expr(&self, e: &Expr, program: &mut Program) {
+    fn compile_expr(&mut self, e: &Expr, program: &mut Program) {
         match e {
             Expr::Const(n) => program.push(Instruction::Const(*n)),
             Expr::Var(var) => program.push(Instruction::Load(var.clone())),
@@ -102,6 +102,13 @@ impl CompilationContext {
                 self.compile_expr(lhs, program);
                 self.compile_expr(rhs, program);
                 program.push(Instruction::LogicOp(*op));
+            },
+            Expr::Call(name, args) => {
+                for arg in args {
+                    self.compile_expr(arg, program);
+                }
+                let label = self.gen_named_label(name);
+                program.push(Instruction::Call(label));
             }
         }
     }
@@ -177,6 +184,12 @@ impl CompilationContext {
 
                     program.push(Instruction::Call(target))
                 }
+                Statement::Return(e) => {
+                    if let Some(e) = e {
+                        self.compile_expr(e, program);
+                    }
+                    program.push(Instruction::End);
+                }
             }
         }
     }
@@ -211,76 +224,20 @@ impl CompilationContext {
 pub fn compile(statements: &statement::Program) -> Result<Program> {
     let mut program = Program::new();
     let mut context = CompilationContext::new();
-    let main = statements
-        .functions
-        .get(statements.entry)
+    let main = statements.entry()
         .ok_or("No main function found (sm::compile)")?;
 
     context.compile_function(main, &mut program);
 
-    for (i, function) in statements.functions.iter().enumerate() {
-        if i == statements.entry {
-            continue;
-        }
-
+    for function in statements.functions() {
         context.compile_function(function, &mut program);
     }
 
     Ok(program)
 }
 
-type Vars = HashMap<Var, Int>;
-
-struct SMMemory<M> {
-    globals: M,
-    locals: Vec<(HashSet<Var>, Vars)>,
-}
-
-impl<M> SMMemory<M> {
-    fn push_scope(&mut self, vars: HashSet<Var>) {
-        self.locals.push((vars, Vars::new()));
-    }
-
-    fn pop_scope(&mut self) {
-        self.locals.pop();
-    }
-}
-
-impl<M: Memory> SMMemory<M> {
-    fn storage(&self, name: &Var) -> &dyn Memory {
-        match self.locals.last() {
-            Some((names, ref values)) if names.contains(name) => values,
-            _ => &self.globals,
-        }
-    }
-
-    fn storage_mut(&mut self, name: &Var) -> &mut dyn Memory {
-        match self.locals.last_mut() {
-            Some((names, ref mut values)) if names.contains(name) => values,
-            _ => &mut self.globals,
-        }
-    }
-}
-
-impl<M> Memory for SMMemory<M>
-where
-    M: Memory,
-{
-    fn load(&self, name: &Var) -> Option<Int> {
-        self.storage(name).load(name)
-    }
-
-    fn store(&mut self, name: &Var, value: Int) {
-        self.storage_mut(name).store(name, value);
-    }
-
-    fn scope(&mut self, local_names: HashSet<Var>) -> Scope {
-        Scope::new(&mut self.globals, local_names)
-    }
-}
-
-pub struct StackMachine<'a, M, I, O> {
-    memory: SMMemory<&'a mut M>,
+pub struct StackMachine<'a, I, O> {
+    memory: &'a mut Memory,
     input: &'a mut I,
     output: &'a mut O,
     stack: Stack,
@@ -293,22 +250,18 @@ enum Retcode {
     Return,
 }
 
-impl<M, I, O> StackMachine<'_, M, I, O>
+impl<I, O> StackMachine<'_, I, O>
 where
-    M: Memory,
     I: InputStream,
     O: OutputStream,
 {
     pub fn new<'a>(
-        memory: &'a mut M,
+        memory: &'a mut Memory,
         input: &'a mut I,
         output: &'a mut O,
-    ) -> StackMachine<'a, M, I, O> {
+    ) -> StackMachine<'a, I, O> {
         StackMachine {
-            memory: SMMemory {
-                globals: memory,
-                locals: Vec::new(),
-            },
+            memory,
             input,
             output,
             stack: Stack::new(),
