@@ -8,7 +8,7 @@ enum Error {
     DivisionByZero,
 
     #[snafu(display("Attempt to mod by 0"))]
-    ModZero
+    ModZero,
 }
 
 #[derive(Debug, Clone, Copy)]

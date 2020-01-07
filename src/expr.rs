@@ -15,21 +15,11 @@ pub enum Expr {
 impl Expr {
     #[cfg(test)]
     pub fn parse(input: crate::nom::Input) -> Result<Expr> {
-        let (rest, e) = self::parse::expr(input).map_err(|e| {
-            format!(
-                "Parsing of {} failed: {:?}",
-                input,
-                e
-            )
-        })?;
+        let (rest, e) = self::parse::expr(input)
+            .map_err(|e| crate::nom::format_err(e, "expression", input))?;
 
         if !rest.is_empty() {
-            return Err(format!(
-                "Incomplete parse of expression {}: {}",
-                input,
-                rest
-            )
-            .into());
+            return Err(format!("Incomplete parse of expression {}: {}", input, rest).into());
         }
 
         Ok(e)
@@ -99,11 +89,11 @@ pub mod parse {
     use super::*;
     use crate::types::parse::{integer, variable};
 
+    use crate::nom::{key, spaces, Input, Parsed};
     use nom::branch::alt;
     use nom::combinator::{map, opt};
     use nom::multi::{fold_many0, separated_list};
     use nom::sequence::{delimited, pair, preceded};
-    use crate::nom::{spaces, key, Parsed, Input};
 
     fn factor(input: Input) -> Parsed<Expr> {
         let (input, minus) = opt(key("-"))(input)?;

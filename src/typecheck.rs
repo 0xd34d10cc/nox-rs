@@ -1,11 +1,41 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::types::{Result, Var};
-use crate::statement::{Program, Function, Statement};
+use snafu::Snafu;
+
 use crate::expr::Expr;
+use crate::statement::{Function, Program, Statement};
+use crate::types::{Result, Var};
 
+struct VariableState {
+    initialized: bool,
+    referenced: bool,
+}
 
-type Vars = HashMap<Var, bool /* is_initialized */>;
+impl VariableState {
+    fn initialized() -> Self {
+        VariableState {
+            initialized: true,
+            referenced: false,
+        }
+    }
+
+    fn uninitialized() -> Self {
+        VariableState {
+            initialized: false,
+            referenced: false,
+        }
+    }
+
+    fn reference(&mut self) {
+        self.referenced = true;
+    }
+
+    fn initialize(&mut self) {
+        self.initialized = true;
+    }
+}
+
+type Vars = HashMap<Var, VariableState>;
 
 struct Symbols {
     globals: Vars,
@@ -16,14 +46,22 @@ impl Symbols {
     pub fn new() -> Self {
         Symbols {
             globals: Vars::new(),
-            locals: Vec::new()
+            locals: Vec::new(),
         }
     }
 
     pub fn enter_scope(&mut self, args: &[Var], locals: &[Var]) {
-        let local_names = args.iter().cloned().map(|arg| (arg, true))
-            .chain(locals.iter().cloned().map(|local| (local, false)))
-            .collect();
+        let args = args
+            .iter()
+            .cloned()
+            .map(|arg| (arg, VariableState::initialized()));
+
+        let locals = locals
+            .iter()
+            .cloned()
+            .map(|local| (local, VariableState::uninitialized()));
+
+        let local_names = args.chain(locals).collect();
         self.locals.push(local_names);
     }
 
@@ -31,50 +69,51 @@ impl Symbols {
         self.locals.pop();
     }
 
-    fn storage(&self, var: &Var) -> &Vars {
-        match self.locals.last() {
-            Some(locals) if locals.contains_key(var) => locals,
-            _ => &self.globals
-        }
-    }
-
     fn storage_mut(&mut self, var: &Var) -> &mut Vars {
         match self.locals.last_mut() {
             Some(locals) if locals.contains_key(var) => locals,
-            _ => &mut self.globals
+            _ => &mut self.globals,
         }
     }
 
     pub fn initialize(&mut self, var: &Var) {
         let storage = self.storage_mut(var);
-        if let Some(i) = storage.get_mut(var) {
-            *i = true;
+        if let Some(state) = storage.get_mut(var) {
+            state.initialize()
         } else {
-            storage.insert(var.clone(), true);
+            storage.insert(var.clone(), VariableState::initialized());
         }
     }
 
-    pub fn reference(&self, var: &Var) -> Result<()> {
-        // 1. check that it actually exist
-        let init = self.storage(var)
-            .get(var)
+    pub fn reference(&mut self, var: &Var) -> Result<()> {
+        let state = self
+            .storage_mut(var)
+            .get_mut(var)
             .ok_or_else(|| format!("Reference of unknown variable: {}", var))?;
 
-        if !init {
-            return Err(format!(
-                "Attempt to reference uninitialized variable: {}",
-                var
-            ).into());
+        if !state.initialized {
+            return Err(format!("Attempt to reference uninitialized variable: {}", var).into());
         }
+
+        state.reference();
 
         Ok(())
     }
 }
 
+#[derive(Debug, Snafu)]
+pub enum Warning {
+    #[snafu(display("Unused function: {}", name))]
+    UnusedFunction { name: Var },
+
+    #[snafu(display("Unused variable: {}", name))]
+    UnusedVariable { name: Var },
+}
+
 struct TypeChecker<'a> {
     program: &'a Program,
     symbols: Symbols,
-    checked_functions: HashSet<Var>
+    checked_functions: HashSet<Var>,
 }
 
 impl TypeChecker<'_> {
@@ -86,12 +125,11 @@ impl TypeChecker<'_> {
         }
     }
 
-    pub fn check(&mut self) -> Result<()> {
-        for function in self.program.functions.iter() {
-            self.check_function(function)?;
-        }
+    pub fn check(&mut self) -> Result<Vec<Warning>> {
+        let entry = self.program.entry().ok_or("No entry function")?;
+        self.check_function(entry)?;
 
-        Ok(())
+        Ok(Vec::new())
     }
 
     fn check_function(&mut self, function: &Function) -> Result<()> {
@@ -115,11 +153,19 @@ impl TypeChecker<'_> {
     }
 
     fn check_call(&self, function: &Var, args: usize) -> Result<()> {
-        let f = self.program.get(function)
+        let f = self
+            .program
+            .get(function)
             .ok_or_else(|| format!("Call to unknown function: {}", function))?;
 
         if f.args.len() != args {
-            return Err(format!("Invalid number of arguments in call to {}: expected {} found {}", function, f.args.len(), args).into());
+            return Err(format!(
+                "Invalid number of arguments in call to {}: expected {} found {}",
+                function,
+                f.args.len(),
+                args
+            )
+            .into());
         }
 
         Ok(())
@@ -127,24 +173,24 @@ impl TypeChecker<'_> {
 
     fn check_statement(&mut self, statement: &Statement) -> Result<()> {
         match statement {
-            Statement::Skip => { /* nothing to check */ },
+            Statement::Skip => { /* nothing to check */ }
             Statement::IfElse {
                 condition,
                 if_true,
-                if_false
+                if_false,
             } => {
                 self.check_expr(condition)?;
                 self.check_statements(if_true)?;
                 self.check_statements(if_false)?;
-            },
+            }
             Statement::While { condition, body } => {
                 self.check_expr(condition)?;
                 self.check_statements(body)?;
-            },
+            }
             Statement::DoWhile { body, condition } => {
                 self.check_statements(body)?;
                 self.check_expr(condition)?;
-            },
+            }
             Statement::Assign(x, e) => {
                 self.check_expr(e)?;
                 self.symbols.initialize(x);
@@ -159,7 +205,7 @@ impl TypeChecker<'_> {
 
                 let f = self.program.get(name).unwrap(); // checked by check_call()
                 self.check_function(f)?;
-            },
+            }
             Statement::Return(e) => {
                 if let Some(e) = e {
                     self.check_expr(e)?;
@@ -170,14 +216,14 @@ impl TypeChecker<'_> {
         Ok(())
     }
 
-    fn check_expr(&self, expr: &Expr) -> Result<()> {
+    fn check_expr(&mut self, expr: &Expr) -> Result<()> {
         match expr {
             Expr::Var(v) => self.symbols.reference(v)?,
-            Expr::Const(_) => {},
+            Expr::Const(_) => {}
             Expr::Op(_, lhs, rhs) | Expr::LogicOp(_, lhs, rhs) => {
                 self.check_expr(&*lhs)?;
                 self.check_expr(&*rhs)?;
-            },
+            }
             Expr::Call(name, args) => {
                 for arg in args {
                     self.check_expr(arg)?;
@@ -191,6 +237,6 @@ impl TypeChecker<'_> {
     }
 }
 
-pub fn check(program: &Program) -> Result<()> {
+pub fn check(program: &Program) -> Result<Vec<Warning>> {
     TypeChecker::new(program).check()
 }

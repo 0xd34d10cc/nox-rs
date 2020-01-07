@@ -9,7 +9,7 @@ pub enum Statement {
     IfElse {
         condition: Expr,
         if_true: Vec<Statement>,
-        if_false: Vec<Statement>, // <- all elif's are here
+        if_false: Vec<Statement>,
     },
     While {
         condition: Expr,
@@ -59,22 +59,25 @@ impl Program {
 
     #[cfg(test)]
     pub fn compile(input: crate::nom::Input) -> Result<Program> {
-        use crate::typecheck;
+        Program::parse(input).and_then(|program| {
+            crate::typecheck::check(&program)?;
+            Ok(program)
+        })
+    }
 
-        let (rest, program) = parse::program(input)
-            .map_err(|e| crate::nom::format_err(e, "program", input))?;
+    #[cfg(test)]
+    pub fn parse(input: crate::nom::Input) -> Result<Program> {
+        let (rest, program) =
+            parse::program(input).map_err(|e| crate::nom::format_err(e, "program", input))?;
 
         if !rest.is_empty() {
             return Err(format!(
                 "Incomplete parse of statement\nProgram: {:?}\nOriginal: \n{}\nRest: \n{}",
-                program,
-                input,
-                rest,
+                program, input, rest,
             )
             .into());
         }
 
-        typecheck::check(&program)?;
         Ok(program)
     }
 
@@ -280,9 +283,9 @@ pub mod parse {
 
     use super::{Expr, Function, Program, Var};
     use crate::expr::parse::expr;
+    use crate::nom::{key, spaces, Input, Parsed};
     use crate::ops::LogicOp;
     use crate::types::parse::variable;
-    use crate::nom::{Parsed, Input, key, spaces};
 
     use nom::branch::alt;
     use nom::bytes::complete::tag;
@@ -297,7 +300,8 @@ pub mod parse {
         IfElse {
             condition: Expr,
             if_true: Vec<Statement>,
-            if_false: Vec<Statement>, // <- all elif's are here
+            elifs: Vec<(Expr, Vec<Statement>)>,
+            if_false: Vec<Statement>,
         },
         While {
             condition: Expr,
@@ -335,14 +339,43 @@ pub mod parse {
         match statement {
             Statement::Skip => program.push(super::Statement::Skip),
             Statement::IfElse {
-                condition,
+                condition: root_condition,
                 if_true,
+                mut elifs,
                 if_false,
-            } => program.push(super::Statement::IfElse {
-                condition,
-                if_true: convert(if_true),
-                if_false: convert(if_false),
-            }),
+            } => {
+                // build if-else chain
+                let if_else = if let Some((condition, body)) = elifs.pop() {
+                    let mut root = super::Statement::IfElse {
+                        condition,
+                        if_true: convert(body),
+                        if_false: convert(if_false),
+                    };
+
+                    for (condition, body) in elifs.into_iter().rev() {
+                        root = super::Statement::IfElse {
+                            condition,
+                            if_true: convert(body),
+                            if_false: vec![root],
+                        };
+                    }
+
+                    super::Statement::IfElse {
+                        condition: root_condition,
+                        if_true: convert(if_true),
+                        if_false: vec![root],
+                    }
+                } else {
+                    // simple case
+                    super::Statement::IfElse {
+                        condition: root_condition,
+                        if_true: convert(if_true),
+                        if_false: convert(if_false),
+                    }
+                };
+
+                program.push(if_else)
+            }
             Statement::While { condition, body } => program.push(super::Statement::While {
                 condition,
                 body: convert(body),
@@ -379,7 +412,7 @@ pub mod parse {
 
     pub fn program(input: Input) -> Parsed<Program> {
         let (input, mut fns) = many0(function)(input)?;
-        let (input, main) = statements(input)?;
+        let (input, main) = statements1(input)?;
 
         let entry: Var = "main".into();
         fns.push(Function {
@@ -398,8 +431,12 @@ pub mod parse {
         ))
     }
 
-    fn statements(input: Input) -> Parsed<Vec<Statement>> {
+    fn statements1(input: Input) -> Parsed<Vec<Statement>> {
         separated_nonempty_list(key(";"), statement)(input)
+    }
+
+    fn statements(input: Input) -> Parsed<Vec<Statement>> {
+        separated_list(key(";"), statement)(input)
     }
 
     fn statement(input: Input) -> Parsed<Statement> {
@@ -455,41 +492,19 @@ pub mod parse {
     fn if_else(input: Input) -> Parsed<Statement> {
         let (input, root_condition) = preceded(key("if"), expr)(input)?;
         let (input, if_true) = preceded(key("then"), statements)(input)?;
-        let (input, mut elifs) = many0(elif)(input)?;
+        let (input, elifs) = many0(elif)(input)?;
         let (input, else_) = opt(else_)(input)?;
         let (input, _) = key("fi")(input)?;
 
-        // build if-else chain
-        let if_else = if let Some((condition, body)) = elifs.pop() {
-            let mut root = Statement::IfElse {
-                condition,
-                if_true: body,
-                if_false: else_.unwrap_or_default(),
-            };
-
-            for (condition, body) in elifs.into_iter().rev() {
-                root = Statement::IfElse {
-                    condition,
-                    if_true: body,
-                    if_false: vec![root],
-                };
-            }
-
+        Ok((
+            input,
             Statement::IfElse {
                 condition: root_condition,
                 if_true,
-                if_false: vec![root],
-            }
-        } else {
-            // simple case
-            Statement::IfElse {
-                condition: root_condition,
-                if_true,
+                elifs,
                 if_false: else_.unwrap_or_default(),
-            }
-        };
-
-        Ok((input, if_else))
+            },
+        ))
     }
 
     fn elif(input: Input) -> Parsed<(Expr, Vec<Statement>)> {

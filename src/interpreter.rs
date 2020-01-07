@@ -8,9 +8,10 @@ use crate::context::Memory;
 use crate::jit::{self, Runtime};
 use crate::sm;
 use crate::statement;
-use crate::types::Var;
 use crate::typecheck;
+use crate::types::Var;
 
+#[derive(Debug)]
 pub enum Command {
     Delete(Var),
     ResetEnv,
@@ -28,13 +29,13 @@ pub enum Command {
 
 impl Command {
     fn parse(line: &str) -> Result<Command, Box<dyn Error>> {
-        let (rest, line) = parse::input_line(line)
-            .map_err(|e| crate::nom::format_err(e, "command", line))?;
+        let (rest, line) =
+            parse::input_line(line).map_err(|e| crate::nom::format_err(e, "command", line))?;
 
         if !rest.is_empty() {
             return Err(format!(
-                "Incomplete parse of command: {}",
-                rest
+                "Incomplete parse of command:\nParsed: {:?}\nRest: {}",
+                line, rest
             )
             .into());
         }
@@ -114,9 +115,11 @@ impl Interpreter {
         if rl.load_history("history.txt").is_err() {
             println!("No previous history.");
         }
+
         loop {
             let readline = rl.readline(">> ");
             match readline {
+                Ok(line) if line.trim().is_empty() => {}
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
                     match Command::parse(line.as_str()) {
@@ -164,9 +167,9 @@ mod parse {
     // RunJIT ::= :rj Statements
 
     use super::Command;
+    use crate::nom::{spaces, Input, Parsed};
     use crate::statement::parse::program;
     use crate::types::parse::variable;
-    use crate::nom::{Parsed, Input, spaces};
 
     use nom::branch::alt;
     use nom::bytes::complete::tag;

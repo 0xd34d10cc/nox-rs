@@ -4,10 +4,10 @@ pub type Var = String;
 
 pub mod parse {
     use super::*;
+    use crate::nom::{spaces, Input, Parsed};
     use nom::bytes::complete::{take_while, take_while1};
     use nom::combinator::{map_res, verify};
     use nom::sequence::preceded;
-    use crate::nom::{Parsed, Input, spaces};
 
     fn is_keyword(s: &str) -> bool {
         match s {

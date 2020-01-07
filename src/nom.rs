@@ -12,7 +12,11 @@ pub fn key<'a>(key: &'a str) -> impl Fn(Input<'a>) -> Parsed<Input> {
 
 pub fn format_err(e: nom::Err<Error>, what: &str, input: &str) -> String {
     match e {
-        nom::Err::Error(e) | nom::Err::Failure(e) => format!("Failed to parse {}: {}", what, nom::error::convert_error(input, e)),
+        nom::Err::Error(e) | nom::Err::Failure(e) => format!(
+            "Failed to parse {}:\n{}",
+            what,
+            nom::error::convert_error(input, e)
+        ),
         nom::Err::Incomplete(needed) => format!("Incomplete parse of {}: {:?}", what, needed),
     }
 }

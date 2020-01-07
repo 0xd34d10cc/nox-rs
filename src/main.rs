@@ -4,6 +4,7 @@ mod context;
 mod expr;
 mod interpreter;
 mod jit;
+mod nom;
 mod ops;
 #[cfg(test)]
 mod regression;
@@ -11,7 +12,6 @@ mod sm;
 mod statement;
 mod typecheck;
 mod types;
-mod nom;
 
 use std::error::Error;
 
