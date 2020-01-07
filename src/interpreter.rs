@@ -3,9 +3,10 @@ use std::io::{self, Stdin, Stdout};
 
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use snafu::{ResultExt, Snafu};
 
 use crate::context::Memory;
-use crate::jit::{self, Runtime};
+use crate::jit;
 use crate::sm;
 use crate::statement;
 use crate::typecheck;
@@ -28,20 +29,24 @@ pub enum Command {
 }
 
 impl Command {
-    fn parse(line: &str) -> Result<Command, Box<dyn Error>> {
-        let (rest, line) =
-            parse::input_line(line).map_err(|e| crate::nom::format_err(e, "command", line))?;
-
-        if !rest.is_empty() {
-            return Err(format!(
-                "Incomplete parse of command:\nParsed: {:?}\nRest: {}",
-                line, rest
-            )
-            .into());
-        }
-
-        Ok(line)
+    fn parse(line: &str) -> crate::nom::Result<Command> {
+        crate::nom::parse("command", parse::input_line, line)
     }
+}
+
+#[derive(Debug, Snafu)]
+pub enum CommandError {
+    #[snafu(display("Parse error: {}", source))]
+    Parse { source: crate::nom::Error },
+
+    #[snafu(display("Compilation error: {}", 0))]
+    Compilation { source: Box<dyn Error> },
+
+    #[snafu(display("Type error: {}", source))]
+    Type { source: typecheck::Error },
+
+    #[snafu(display("Runtime error: {}", source))]
+    Runtime { source: Box<dyn Error> },
 }
 
 pub struct Interpreter {
@@ -59,64 +64,76 @@ impl Interpreter {
         }
     }
 
-    pub fn execute(&mut self, line: Command) -> Result<(), Box<dyn Error>> {
+    pub fn execute(&mut self, line: Command) -> Result<(), CommandError> {
         match line {
             Command::Delete(var) => {
-                if self.memory.globals_mut().remove(&var).is_none() {
-                    println!("No such variable: {}", var);
-                }
+                self.memory
+                    .globals_mut()
+                    .remove(&var)
+                    .ok_or_else(|| CommandError::Runtime {
+                        source: format!("No such variable: {}", var).into(),
+                    })?;
             }
             Command::ResetEnv => self.memory.clear(),
             Command::ShowEnv => println!("{:?}", self.memory),
             Command::ShowStatements(p) => println!("{:#?}", p),
             Command::RunStatements(p) => {
-                let warnings = typecheck::check(&p)?;
+                let warnings = typecheck::check(&p).context(Type {})?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
                     }
                 }
 
-                if let Some(val) = p.run(&mut self.memory, &mut self.input, &mut self.output)? {
+                let result = p
+                    .run(&mut self.memory, &mut self.input, &mut self.output)
+                    .context(Runtime {})?;
+
+                if let Some(val) = result {
                     println!("Return code: {}", val);
                 }
             }
             Command::ShowSMInstructions(p) => {
-                for instruction in sm::compile(&p)?.instructions() {
+                let p = sm::compile(&p).context(Compilation {})?;
+                for instruction in p.instructions() {
                     println!("{:?}", instruction)
                 }
             }
             Command::RunSMInstructions(p) => {
-                let warnings = typecheck::check(&p)?;
+                let warnings = typecheck::check(&p).context(Type {})?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
                     }
                 }
 
-                let p = sm::compile(&p)?;
+                let p = sm::compile(&p).context(Compilation {})?;
                 let mut machine =
                     sm::StackMachine::new(&mut self.memory, &mut self.input, &mut self.output);
-                machine.run(&p)?;
+                machine.run(&p).context(Runtime {})?;
             }
             Command::ShowJITAsm(p) => {
-                let p = sm::compile(&p)?;
-                let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
+                let p = sm::compile(&p).context(Compilation {})?;
+                let p = jit::Compiler::new()
+                    .compile(&p, jit::Runtime::stdio())
+                    .context(Compilation {})?;
                 println!("Memory map:\n{}", p.globals());
                 for instruction in p.disassemble() {
                     println!("{}", instruction);
                 }
             }
             Command::RunJIT(p) => {
-                let warnings = typecheck::check(&p)?;
+                let warnings = typecheck::check(&p).context(Type {})?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
                     }
                 }
 
-                let p = sm::compile(&p)?;
-                let p = jit::Compiler::new().compile(&p, Runtime::stdio())?;
+                let p = sm::compile(&p).context(Compilation {})?;
+                let p = jit::Compiler::new()
+                    .compile(&p, jit::Runtime::stdio())
+                    .context(Compilation {})?;
                 let retcode = p.run();
                 if retcode != 0 {
                     println!("Failure: {}", retcode);
@@ -140,14 +157,14 @@ impl Interpreter {
                 Ok(line) if line.trim().is_empty() => {}
                 Ok(line) => {
                     rl.add_history_entry(line.as_str());
-                    match Command::parse(line.as_str()) {
-                        Ok(line) => {
-                            if let Err(e) = self.execute(line) {
-                                println!("Failed to execute line: {}", e);
-                            }
-                        }
-                        Err(e) => println!("{}", e),
-                    };
+
+                    let result = Command::parse(line.as_str())
+                        .context(Parse {})
+                        .and_then(|command| self.execute(command));
+
+                    if let Err(e) = result {
+                        println!("{}", e);
+                    }
                 }
                 Err(ReadlineError::Interrupted) => {
                     println!("CTRL-C");

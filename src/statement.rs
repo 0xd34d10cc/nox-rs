@@ -59,26 +59,17 @@ impl Program {
 
     #[cfg(test)]
     pub fn compile(input: crate::nom::Input) -> Result<Program> {
-        Program::parse(input).and_then(|program| {
-            crate::typecheck::check(&program)?;
-            Ok(program)
-        })
+        Program::parse(input)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            .and_then(|program| {
+                crate::typecheck::check(&program)?;
+                Ok(program)
+            })
     }
 
     #[cfg(test)]
-    pub fn parse(input: crate::nom::Input) -> Result<Program> {
-        let (rest, program) =
-            parse::program(input).map_err(|e| crate::nom::format_err(e, "program", input))?;
-
-        if !rest.is_empty() {
-            return Err(format!(
-                "Incomplete parse of statement\nProgram: {:?}\nOriginal: \n{}\nRest: \n{}",
-                program, input, rest,
-            )
-            .into());
-        }
-
-        Ok(program)
+    pub fn parse(input: crate::nom::Input) -> crate::nom::Result<Program> {
+        crate::nom::parse("program", parse::program, input)
     }
 
     pub fn entry(&self) -> Option<&Function> {

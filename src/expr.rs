@@ -1,7 +1,18 @@
+use snafu::Snafu;
+
 use crate::context::{InputStream, OutputStream};
 use crate::ops::{LogicOp, Op};
 use crate::statement::ExecutionContext;
 use crate::types::{Int, Result, Var};
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Variable '{}' is not defined", name))]
+    UndefinedVar { name: Var },
+
+    #[snafu(display("Call to procedure {} inside expression", name))]
+    CallToProcedure { name: Var },
+}
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -14,15 +25,8 @@ pub enum Expr {
 
 impl Expr {
     #[cfg(test)]
-    pub fn parse(input: crate::nom::Input) -> Result<Expr> {
-        let (rest, e) = self::parse::expr(input)
-            .map_err(|e| crate::nom::format_err(e, "expression", input))?;
-
-        if !rest.is_empty() {
-            return Err(format!("Incomplete parse of expression {}: {}", input, rest).into());
-        }
-
-        Ok(e)
+    pub fn parse(input: crate::nom::Input) -> crate::nom::Result<Expr> {
+        crate::nom::parse("expression", parse::expr, input)
     }
 
     pub fn eval<I, O>(&self, context: &mut ExecutionContext<'_, I, O>) -> Result<Int>
@@ -35,7 +39,7 @@ impl Expr {
                 let val = context
                     .memory()
                     .load(name)
-                    .ok_or_else(|| format!("Variable {} is not defined", name))?;
+                    .ok_or_else(|| Error::UndefinedVar { name: name.clone() })?;
                 Ok(val)
             }
             Expr::Const(v) => Ok(*v),
@@ -59,7 +63,7 @@ impl Expr {
 
                 let retval = context
                     .call(name, &args)?
-                    .ok_or_else(|| format!("Call to {} procedure inside expression", name))?;
+                    .ok_or_else(|| Error::CallToProcedure { name: name.clone() })?;
 
                 Ok(retval)
             }
