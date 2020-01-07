@@ -102,7 +102,7 @@ impl CompilationContext {
                 self.compile_expr(lhs, program);
                 self.compile_expr(rhs, program);
                 program.push(Instruction::LogicOp(*op));
-            },
+            }
             Expr::Call(name, args) => {
                 for arg in args {
                     self.compile_expr(arg, program);
@@ -224,7 +224,8 @@ impl CompilationContext {
 pub fn compile(statements: &statement::Program) -> Result<Program> {
     let mut program = Program::new();
     let mut context = CompilationContext::new();
-    let main = statements.entry()
+    let main = statements
+        .entry()
         .ok_or("No main function found (sm::compile)")?;
 
     context.compile_function(main, &mut program);

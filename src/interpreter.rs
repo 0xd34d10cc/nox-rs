@@ -188,10 +188,7 @@ mod parse {
         ))(input)
     }
 
-    fn command<'a, P>(
-        prefix: &'a str,
-        parser: P,
-    ) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], Command>
+    fn command<'a, P>(prefix: &'a str, parser: P) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], Command>
     where
         P: Fn(&'a [u8]) -> IResult<&'a [u8], Command>,
     {

@@ -673,3 +673,93 @@ fn test029() {
         1,
     );
 }
+
+#[test]
+fn test030() {
+    run(
+        "
+        fun fib (n) {
+          if n <= 1
+          then return 1
+          else
+            return fib (n-1) + fib (n-2)
+          fi
+        }
+        read (n);
+        for i := n, i >= 1, i := i-1 do
+          write (i);
+          write (fib (i))
+        od
+        ",
+        &[9],
+        &[9, 55, 8, 34, 7, 21, 6, 13, 5, 8, 4, 5, 3, 3, 2, 2, 1, 1],
+        1,
+    );
+}
+
+#[test]
+fn test031() {
+    run(
+        "
+        fun fact (n) {
+          if n <= 1
+          then return 1
+          else
+            return n * fact (n-1)
+          fi
+        }
+        read (n);
+        for i := n, i >= 1, i := i-1 do
+          write (i);
+          write (fact (i))
+        od
+        ",
+        &[7],
+        &[7, 5040, 6, 720, 5, 120, 4, 24, 3, 6, 2, 2, 1, 1],
+        1,
+    );
+}
+
+#[test]
+fn test032() {
+    run(
+        "
+        fun ack (m, n) {
+          if m == 0 then return n+1
+          elif m > 0 && n == 0 then return ack (m-1, 1)
+          else return ack (m-1, ack (m, n-1))
+          fi
+        }
+        for m := 0, m <= 3, m := m+1 do
+          for n := 0, n <= 3, n := n+1 do
+            write (ack (m, n))
+          od
+        od
+        ",
+        &[0],
+        &[1, 2, 3, 4, 2, 3, 4, 5, 3, 5, 7, 9, 5, 13, 29, 61],
+        0,
+    );
+}
+
+#[test]
+fn test033() {
+    run(
+        "
+        fun test (n, m) local i, s {
+          s := 0;
+          for i := 0, i <= n, i := i + 1 do
+            s := s + i;
+            if s > m then return s fi
+          od;
+
+          return s
+        }
+        write (test (10, 100));
+        write (test (100, 10))
+        ",
+        &[0],
+        &[55, 15],
+        0,
+    );
+}

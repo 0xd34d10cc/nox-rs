@@ -1,7 +1,7 @@
-use crate::statement::ExecutionContext;
-use crate::ops::{LogicOp, Op};
-use crate::types::{Int, Result, Var};
 use crate::context::{InputStream, OutputStream};
+use crate::ops::{LogicOp, Op};
+use crate::statement::ExecutionContext;
+use crate::types::{Int, Result, Var};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -9,7 +9,7 @@ pub enum Expr {
     Const(Int),
     Op(Op, Box<Expr>, Box<Expr>),
     LogicOp(LogicOp, Box<Expr>, Box<Expr>),
-    Call(Var, Vec<Expr>)
+    Call(Var, Vec<Expr>),
 }
 
 impl Expr {
@@ -37,12 +37,14 @@ impl Expr {
     }
 
     pub fn eval<I, O>(&self, context: &mut ExecutionContext<'_, I, O>) -> Result<Int>
-        where I: InputStream,
-              O: OutputStream
+    where
+        I: InputStream,
+        O: OutputStream,
     {
         match self {
             Expr::Var(name) => {
-                let val = context.memory()
+                let val = context
+                    .memory()
                     .load(name)
                     .ok_or_else(|| format!("Variable {} is not defined", name))?;
                 Ok(val)
@@ -59,13 +61,15 @@ impl Expr {
                 let right = rhs.eval(context)?;
                 let v = op.apply(left, right);
                 Ok(Int::from(v))
-            },
+            }
             Expr::Call(name, args) => {
-                let args: Vec<_> = args.iter()
+                let args: Vec<_> = args
+                    .iter()
                     .map(|arg| arg.eval(context))
                     .collect::<Result<_>>()?;
 
-                let retval = context.call(name, &args)?
+                let retval = context
+                    .call(name, &args)?
                     .ok_or_else(|| format!("Call to {} procedure inside expression", name))?;
 
                 Ok(retval)
@@ -100,7 +104,7 @@ pub mod parse {
     use nom::bytes::complete::{tag, take_while};
     use nom::combinator::{map, opt};
     use nom::multi::{fold_many0, separated_list};
-    use nom::sequence::{preceded, delimited, pair};
+    use nom::sequence::{delimited, pair, preceded};
     use nom::IResult;
 
     fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
@@ -146,11 +150,9 @@ pub mod parse {
 
     fn term(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = factor(input)?;
-        fold_many0(
-            pair(mul_div_or_mod, factor),
-            lhs,
-            |lhs, (op, rhs)| Expr::Op(op, Box::new(lhs), Box::new(rhs)),
-        )(input)
+        fold_many0(pair(mul_div_or_mod, factor), lhs, |lhs, (op, rhs)| {
+            Expr::Op(op, Box::new(lhs), Box::new(rhs))
+        })(input)
     }
 
     fn add_or_sub(input: &[u8]) -> IResult<&[u8], Op> {
@@ -163,11 +165,9 @@ pub mod parse {
 
     fn arithmetic(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = term(input)?;
-        fold_many0(
-            pair(add_or_sub, term),
-            lhs,
-            |lhs, (op, rhs)| Expr::Op(op, Box::new(lhs), Box::new(rhs)),
-        )(input)
+        fold_many0(pair(add_or_sub, term), lhs, |lhs, (op, rhs)| {
+            Expr::Op(op, Box::new(lhs), Box::new(rhs))
+        })(input)
     }
 
     fn disjunction_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
@@ -205,29 +205,23 @@ pub mod parse {
 
     fn comparison(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = arithmetic(input)?;
-        fold_many0(
-            pair(comparison_op, arithmetic),
-            lhs,
-            |lhs, (op, rhs)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
-        )(input)
+        fold_many0(pair(comparison_op, arithmetic), lhs, |lhs, (op, rhs)| {
+            Expr::LogicOp(op, Box::new(lhs), Box::new(rhs))
+        })(input)
     }
 
     fn conjunction(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = comparison(input)?;
-        fold_many0(
-            pair(conjunction_op, comparison),
-            lhs,
-            |lhs, (op, rhs)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
-        )(input)
+        fold_many0(pair(conjunction_op, comparison), lhs, |lhs, (op, rhs)| {
+            Expr::LogicOp(op, Box::new(lhs), Box::new(rhs))
+        })(input)
     }
 
     fn disjunction(input: &[u8]) -> IResult<&[u8], Expr> {
         let (input, lhs) = conjunction(input)?;
-        fold_many0(
-            pair(disjunction_op, conjunction),
-            lhs,
-            |lhs, (op, rhs)| Expr::LogicOp(op, Box::new(lhs), Box::new(rhs)),
-        )(input)
+        fold_many0(pair(disjunction_op, conjunction), lhs, |lhs, (op, rhs)| {
+            Expr::LogicOp(op, Box::new(lhs), Box::new(rhs))
+        })(input)
     }
 
     pub fn expr(input: &[u8]) -> IResult<&[u8], Expr> {

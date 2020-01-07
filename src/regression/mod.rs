@@ -9,7 +9,7 @@ mod deep_expressions;
 #[cfg(feature = "generated")]
 mod generated;
 
-use crate::context::{Memory, InputStream, OutputStream};
+use crate::context::{InputStream, Memory, OutputStream};
 // use crate::jit::{self, Runtime};
 use crate::sm::{self, StackMachine};
 use crate::statement;
