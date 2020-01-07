@@ -78,7 +78,7 @@ impl Interpreter {
             Command::ShowEnv => println!("{:?}", self.memory),
             Command::ShowStatements(p) => println!("{:#?}", p),
             Command::RunStatements(p) => {
-                let warnings = typecheck::check(&p).context(Type {})?;
+                let (warnings, p) = typecheck::check(p).context(Type {})?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
@@ -94,13 +94,20 @@ impl Interpreter {
                 }
             }
             Command::ShowSMInstructions(p) => {
+                let (warnings, p) = typecheck::check(p).context(Type {})?;
+                if !warnings.is_empty() {
+                    for warning in warnings {
+                        println!("Warning: {}", warning);
+                    }
+                }
+
                 let p = sm::compile(&p).context(Compilation {})?;
                 for instruction in p.instructions() {
                     println!("{:?}", instruction)
                 }
             }
             Command::RunSMInstructions(p) => {
-                let warnings = typecheck::check(&p).context(Type {})?;
+                let (warnings, p) = typecheck::check(p).context(Type {})?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
@@ -113,6 +120,13 @@ impl Interpreter {
                 machine.run(&p).context(Runtime {})?;
             }
             Command::ShowJITAsm(p) => {
+                let (warnings, p) = typecheck::check(p).context(Type {})?;
+                if !warnings.is_empty() {
+                    for warning in warnings {
+                        println!("Warning: {}", warning);
+                    }
+                }
+
                 let p = sm::compile(&p).context(Compilation {})?;
                 let p = jit::Compiler::new()
                     .compile(&p, jit::Runtime::stdio())
@@ -123,7 +137,7 @@ impl Interpreter {
                 }
             }
             Command::RunJIT(p) => {
-                let warnings = typecheck::check(&p).context(Type {})?;
+                let (warnings, p) = typecheck::check(p).context(Type {})?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);

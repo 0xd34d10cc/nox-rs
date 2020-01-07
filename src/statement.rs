@@ -58,11 +58,11 @@ impl Program {
     }
 
     #[cfg(test)]
-    pub fn compile(input: crate::nom::Input) -> Result<Program> {
+    pub fn compile(input: crate::nom::Input) -> Result<crate::typecheck::Program> {
         Program::parse(input)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
             .and_then(|program| {
-                crate::typecheck::check(&program)?;
+                let (_warnings, program) = crate::typecheck::check(program)?;
                 Ok(program)
             })
     }

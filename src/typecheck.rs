@@ -1,10 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use snafu::Snafu;
 
 use crate::expr::Expr;
-use crate::statement::{Function, Program, Statement};
-use crate::types::Var;
+use crate::statement::{self, Function, Statement};
+use crate::context::{Memory, InputStream, OutputStream};
+use crate::types::{self, Var, Int};
 
 #[derive(Debug, Snafu)]
 pub enum Warning {
@@ -44,19 +45,44 @@ pub enum Error {
     #[snafu(display("Not all control paths of function '{}' return value", name))]
     NotAllControlPathsReturn { name: Var },
 
-    #[snafu(display(
-        "Function {} has return without value (should return = {})",
-        name,
-        should
-    ))]
-    ReturnWithoutValue { name: Var, should: bool },
+    #[snafu(display("Function {} has return statement without value", name))]
+    ReturnWithoutValue { name: Var },
 }
 
 type Result<T> = std::result::Result<T, Error>;
 
-pub fn check(program: &Program) -> Result<Vec<Warning>> {
-    let info = InitChecker::new(program).check()?;
-    ControlFlowChecker::new(program, info).check()
+pub struct Program {
+    program: statement::Program,
+
+    #[allow(unused)]
+    functions: HashSet<Var>, /* names of functions which return value on all paths */
+}
+
+impl Program {
+    pub fn entry(&self) -> &Function {
+        self.program.entry().unwrap() // typechecked
+    }
+
+    pub fn functions(&self) -> impl Iterator<Item=&Function> {
+        self.program.functions()
+    }
+
+    pub fn run<I, O>(&self, memory: &mut Memory, input: &mut I, output: &mut O) -> types::Result<Option<Int>>
+        where I: InputStream, O:OutputStream {
+        self.program.run(memory, input, output)
+    }
+}
+
+pub fn check(program: statement::Program) -> Result<(Vec<Warning>, Program)> {
+    let (warnings, functions) = InitChecker::new(&program).check()?;
+    let (warnings, functions) = ControlFlowChecker::new(&program, functions, warnings).check()?;
+
+    let program = Program {
+        program,
+        functions,
+    };
+
+    Ok((warnings, program))
 }
 
 struct VariableState {
@@ -163,19 +189,14 @@ impl Symbols {
 
 // check that all variables & functions are defined & initialized
 struct InitChecker<'a> {
-    program: &'a Program,
+    program: &'a statement::Program,
     symbols: Symbols,
     checked_functions: HashMap<Var, bool /* returns value */>,
     warnings: Vec<Warning>,
 }
 
-struct InitCheckerInfo {
-    functions: HashMap<Var, bool /* should it be a function? */>,
-    warnings: Vec<Warning>,
-}
-
 impl InitChecker<'_> {
-    pub fn new<'a>(program: &'a Program) -> InitChecker<'a> {
+    pub fn new<'a>(program: &'a statement::Program) -> InitChecker<'a> {
         InitChecker {
             program,
             symbols: Symbols::new(),
@@ -184,7 +205,7 @@ impl InitChecker<'_> {
         }
     }
 
-    pub fn check(&mut self) -> Result<InitCheckerInfo> {
+    pub fn check(&mut self) -> Result<(Vec<Warning>, HashMap<Var, bool /* should value? */>)> {
         let entry = self.program.entry().ok_or(Error::NoEntryFunction)?;
         self.check_function(entry)?;
 
@@ -207,11 +228,7 @@ impl InitChecker<'_> {
 
         let functions = std::mem::replace(&mut self.checked_functions, HashMap::new());
         let warnings = std::mem::replace(&mut self.warnings, Vec::new());
-
-        Ok(InitCheckerInfo {
-            functions,
-            warnings,
-        })
+        Ok((warnings, functions))
     }
 
     fn check_function(&mut self, function: &Function) -> Result<()> {
@@ -339,34 +356,47 @@ impl InitChecker<'_> {
 }
 
 struct ControlFlowChecker<'a> {
-    program: &'a Program,
+    program: &'a statement::Program,
     functions: HashMap<Var, bool>,
     warnings: Vec<Warning>,
 }
 
 impl ControlFlowChecker<'_> {
-    fn new<'a>(program: &'a Program, info: InitCheckerInfo) -> ControlFlowChecker<'a> {
+    fn new<'a>(program: &'a statement::Program, functions: HashMap<Var, bool>, warnings: Vec<Warning>) -> ControlFlowChecker<'a> {
         ControlFlowChecker {
             program,
-            functions: info.functions,
-            warnings: info.warnings,
+            functions: functions,
+            warnings: warnings,
         }
     }
 
-    fn check(&mut self) -> Result<Vec<Warning>> {
+    fn check(&mut self) -> Result<(Vec<Warning>, HashSet<Var>)> {
         for function in self.program.functions.iter() {
             self.check_function(function)?;
         }
 
+        let functions = std::mem::replace(&mut self.functions, HashMap::new());
+        let functions = functions
+            .into_iter()
+            .filter(|(_, should_return)| *should_return)
+            .map(|(name, _)| name)
+            .collect();
+
         let warnings = std::mem::replace(&mut self.warnings, Vec::new());
-        Ok(warnings)
+        Ok((warnings, functions))
     }
 
     fn check_function(&mut self, f: &Function) -> Result<()> {
-        let should_return = self.functions.get(&f.name).unwrap();
+        let should_return = self.functions.get(&f.name).copied().unwrap();
         let actually_returns = self.always_returns(&f.body);
 
-        if *should_return && !actually_returns {
+        if !should_return && actually_returns {
+            // this function was used only in *procedure* context,
+            //  but it actually returns value
+            *self.functions.get_mut(&f.name).unwrap() = true;
+        }
+
+        if should_return && !actually_returns {
             return Err(Error::NotAllControlPathsReturn {
                 name: f.name.clone(),
             });
@@ -417,8 +447,7 @@ impl ControlFlowChecker<'_> {
                 Statement::Return(e) => {
                     if e.is_some() != should_return {
                         return Err(Error::ReturnWithoutValue {
-                            name: Var::from(name),
-                            should: should_return,
+                            name: Var::from(name)
                         });
                     }
                 }
