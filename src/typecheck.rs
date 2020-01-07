@@ -69,6 +69,10 @@ impl Symbols {
         self.locals.pop();
     }
 
+    pub fn locals(&self) -> Option<&Vars> {
+        self.locals.last()
+    }
+
     fn storage_mut(&mut self, var: &Var) -> &mut Vars {
         match self.locals.last_mut() {
             Some(locals) if locals.contains_key(var) => locals,
@@ -114,6 +118,7 @@ struct TypeChecker<'a> {
     program: &'a Program,
     symbols: Symbols,
     checked_functions: HashSet<Var>,
+    warnings: Vec<Warning>,
 }
 
 impl TypeChecker<'_> {
@@ -122,6 +127,7 @@ impl TypeChecker<'_> {
             program,
             symbols: Symbols::new(),
             checked_functions: HashSet::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -129,7 +135,16 @@ impl TypeChecker<'_> {
         let entry = self.program.entry().ok_or("No entry function")?;
         self.check_function(entry)?;
 
-        Ok(Vec::new())
+        for function in self.program.functions.iter() {
+            if !self.checked_functions.contains(&function.name) {
+                self.warnings.push(Warning::UnusedFunction {
+                    name: function.name.clone()
+                });
+            }
+        }
+
+        let warnings = std::mem::replace(&mut self.warnings, Vec::new());
+        Ok(warnings)
     }
 
     fn check_function(&mut self, function: &Function) -> Result<()> {
@@ -141,6 +156,15 @@ impl TypeChecker<'_> {
 
         self.symbols.enter_scope(&function.args, &function.locals);
         let r = self.check_statements(&function.body);
+
+        for (name, state) in self.symbols.locals().unwrap() {
+            if !state.referenced {
+                self.warnings.push(Warning::UnusedVariable {
+                    name: name.clone()
+                });
+            }
+        }
+
         self.symbols.leave_scope();
         r
     }
