@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+mod bad_programs;
 mod expr;
 mod simple_statements;
 

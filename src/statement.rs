@@ -509,7 +509,7 @@ pub mod parse {
     }
 
     fn return_(input: Input) -> Parsed<Statement> {
-        let (input, e) = preceded(key("return "), opt(expr))(input)?;
+        let (input, e) = preceded(key("return"), opt(expr))(input)?;
         Ok((input, Statement::Return(e)))
     }
 

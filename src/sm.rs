@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
 use crate::ops::{LogicOp, Op};
-use crate::typecheck;
 use crate::statement::{Function, Statement};
+use crate::typecheck;
 use crate::types::{Int, Result, Var};
 
 pub type Label = usize;
