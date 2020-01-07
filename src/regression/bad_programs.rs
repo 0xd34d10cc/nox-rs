@@ -19,7 +19,27 @@ fn undefined_variable() {
 }
 
 #[test]
-fn possibly_uninitialilzed_variable() {
+fn possibly_uninitialilzed_local() {
+    assert_eq!(
+        Ok(()),
+        compile(
+            "
+            fun kek(b) local x {
+                if b == 0 then
+                    x := 3
+                fi;
+
+                write(x)
+            }
+
+            kek(42)
+            "
+        )
+    );
+}
+
+#[test]
+fn possibly_uninitialilzed_global() {
     assert_eq!(
         Ok(()),
         compile(
@@ -38,7 +58,7 @@ fn possibly_uninitialilzed_variable() {
 }
 
 #[test]
-fn definitely_uninitialized_variable() {
+fn uninitialized_local() {
     assert_eq!(
         Err(Error::UninitializedVar { name: "x".into() }),
         compile(
@@ -48,6 +68,23 @@ fn definitely_uninitialized_variable() {
             }
 
             kek(42)
+            "
+        )
+    );
+}
+
+#[test]
+fn uninitialized_global() {
+    assert_eq!(
+        Err(Error::UndefinedVar { name: "x".into() }),
+        compile(
+            "
+            fun kek() {
+                x := 42
+            }
+
+            write(x);
+            kek()
             "
         )
     );
