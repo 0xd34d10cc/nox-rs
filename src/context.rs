@@ -8,7 +8,7 @@ type Vars = HashMap<Var, Int>;
 #[derive(Debug, Clone)]
 pub struct Memory {
     globals: Vars,
-    locals: Vec<(HashSet<Var>, Vars)>
+    locals: Vec<(HashSet<Var>, Vars)>,
 }
 
 impl Memory {
@@ -52,7 +52,7 @@ impl Memory {
     fn storage(&self, name: &Var) -> &Vars {
         match self.locals.last() {
             Some((local_names, ref vars)) if local_names.contains(name) => vars,
-            _ => &self.globals
+            _ => &self.globals,
         }
     }
 

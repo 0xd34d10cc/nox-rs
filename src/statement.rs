@@ -1,6 +1,6 @@
 use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
-use crate::types::{Result, Var, Int};
+use crate::types::{Int, Result, Var};
 
 // abstract statement
 #[derive(Debug, Clone)]
@@ -84,7 +84,7 @@ impl Program {
         self.get(&self.entry)
     }
 
-    pub fn functions(&self) -> impl Iterator<Item=&Function> {
+    pub fn functions(&self) -> impl Iterator<Item = &Function> {
         let entry = self.entry.clone();
         self.functions.iter().filter(move |f| f.name != entry)
     }
@@ -93,34 +93,48 @@ impl Program {
         self.functions.iter().find(|f| &f.name == function)
     }
 
-    pub fn run<I, O>(&self, memory: &mut Memory, input: &mut I, output: &mut O) -> Result<Option<Int>>
-        where I: InputStream,
-              O: OutputStream,
+    pub fn run<I, O>(
+        &self,
+        memory: &mut Memory,
+        input: &mut I,
+        output: &mut O,
+    ) -> Result<Option<Int>>
+    where
+        I: InputStream,
+        O: OutputStream,
     {
-        ExecutionContext::new(self, memory, input, output)
-            .call(&self.entry, &[])
+        ExecutionContext::new(self, memory, input, output).call(&self.entry, &[])
     }
 }
 
 enum Retcode {
     Finished,
-    Return(Option<Int>)
+    Return(Option<Int>),
 }
 
 pub struct ExecutionContext<'a, I, O> {
     program: &'a Program,
     memory: &'a mut Memory,
     input: &'a mut I,
-    output: &'a mut O
+    output: &'a mut O,
 }
 
-impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
-    pub fn new<'a>(program: &'a Program, memory: &'a mut Memory, input: &'a mut I, output: &'a mut O) -> ExecutionContext<'a, I, O> {
+impl<I, O> ExecutionContext<'_, I, O>
+where
+    I: InputStream,
+    O: OutputStream,
+{
+    pub fn new<'a>(
+        program: &'a Program,
+        memory: &'a mut Memory,
+        input: &'a mut I,
+        output: &'a mut O,
+    ) -> ExecutionContext<'a, I, O> {
         ExecutionContext {
             program,
             memory,
             input,
-            output
+            output,
         }
     }
 
@@ -129,7 +143,9 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
     }
 
     pub fn call(&mut self, function: &Var, args: &[Int]) -> Result<Option<Int>> {
-        let target = self.program.get(function)
+        let target = self
+            .program
+            .get(function)
             .ok_or_else(|| format!("Call to unknown function: {}", function))?;
 
         if args.len() != target.args.len() {
@@ -146,7 +162,12 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
     }
 
     fn execute_function(&mut self, target: &Function, args: &[Int]) -> Result<Option<Int>> {
-        let local_names = target.args.iter().chain(target.locals.iter()).cloned().collect();
+        let local_names = target
+            .args
+            .iter()
+            .chain(target.locals.iter())
+            .cloned()
+            .collect();
         self.memory.push_scope(local_names);
 
         for (name, value) in target.args.iter().zip(args.iter()) {
@@ -161,10 +182,7 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
         Ok(e)
     }
 
-    fn execute_all(
-        &mut self,
-        statements: &[Statement],
-    ) -> Result<Retcode> {
+    fn execute_all(&mut self, statements: &[Statement]) -> Result<Retcode> {
         for statement in statements {
             if let Retcode::Return(e) = self.execute(statement)? {
                 return Ok(Retcode::Return(e));
@@ -174,10 +192,7 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
         Ok(Retcode::Finished)
     }
 
-    fn execute(
-        &mut self,
-        statement: &Statement,
-    ) -> Result<Retcode> {
+    fn execute(&mut self, statement: &Statement) -> Result<Retcode> {
         match statement {
             Statement::Skip => { /* do nothing */ }
             Statement::IfElse {
@@ -213,7 +228,8 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
                 self.memory.store(name, value);
             }
             Statement::Read(name) => {
-                let value = self.input
+                let value = self
+                    .input
                     .read()
                     .ok_or_else(|| format!("Failed to read {}: no input", name))?;
                 self.memory.store(name, value);
@@ -223,12 +239,13 @@ impl<I, O> ExecutionContext<'_, I, O> where I: InputStream, O: OutputStream {
                 self.output.write(value);
             }
             Statement::Call { name, args } => {
-                let args: Vec<_> = args.iter()
+                let args: Vec<_> = args
+                    .iter()
                     .map(|arg| arg.eval(self))
                     .collect::<Result<_>>()?;
 
                 self.call(name, &args)?;
-            },
+            }
             Statement::Return(e) => {
                 let retval = if let Some(e) = e {
                     Some(e.eval(self)?)
@@ -305,7 +322,7 @@ pub mod parse {
             name: Var,
             args: Vec<Expr>,
         },
-        Return(Option<Expr>)
+        Return(Option<Expr>),
     }
 
     fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
@@ -362,7 +379,7 @@ pub mod parse {
             Statement::Read(into) => program.push(super::Statement::Read(into)),
             Statement::Write(e) => program.push(super::Statement::Write(e)),
             Statement::Call { name, args } => program.push(super::Statement::Call { name, args }),
-            Statement::Return(e) => program.push(super::Statement::Return(e))
+            Statement::Return(e) => program.push(super::Statement::Return(e)),
         }
     }
 

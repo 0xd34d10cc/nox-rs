@@ -9,9 +9,9 @@ fn parse(input: &str) -> Expr {
 }
 
 fn eval(expr: Expr, memory: &Context) -> Int {
-    use crate::sm::{self, StackMachine};
-    use crate::statement::{self, Statement, ExecutionContext};
     use crate::context::{EmptyInput, IgnoreOutput};
+    use crate::sm::{self, StackMachine};
+    use crate::statement::{self, ExecutionContext, Statement};
     use crate::types::Var;
 
     let e = {
@@ -81,9 +81,7 @@ fn make_context(variables: &[(&str, Int)]) -> Context {
     variables
         .iter()
         .map(|(name, value)| (name.to_string(), *value))
-        .for_each(|(name, value)| {
-            memory.store(&name, value)
-        });
+        .for_each(|(name, value)| memory.store(&name, value));
 
     memory
 }
