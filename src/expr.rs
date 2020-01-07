@@ -1,7 +1,18 @@
+use snafu::Snafu;
+
 use crate::context::{InputStream, OutputStream};
 use crate::ops::{LogicOp, Op};
 use crate::statement::ExecutionContext;
 use crate::types::{Int, Result, Var};
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Variable '{}' is not defined", name))]
+    UndefinedVar { name: Var },
+
+    #[snafu(display("Call to procedure {} inside expression", name))]
+    CallToProcedure { name: Var },
+}
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -14,26 +25,8 @@ pub enum Expr {
 
 impl Expr {
     #[cfg(test)]
-    pub fn parse(input: &[u8]) -> Result<Expr> {
-        let (rest, e) = self::parse::expr(input).map_err(|e| {
-            // TODO: find out how to pretty print nom errors
-            format!(
-                "Parsing of {} failed: {:?}",
-                String::from_utf8_lossy(input),
-                e
-            )
-        })?;
-
-        if !rest.is_empty() {
-            return Err(format!(
-                "Incomplete parse of expression {}: {}",
-                String::from_utf8_lossy(input),
-                String::from_utf8_lossy(rest)
-            )
-            .into());
-        }
-
-        Ok(e)
+    pub fn parse(input: crate::nom::Input) -> crate::nom::Result<Expr> {
+        crate::nom::parse("expression", parse::expr, input)
     }
 
     pub fn eval<I, O>(&self, context: &mut ExecutionContext<'_, I, O>) -> Result<Int>
@@ -46,7 +39,7 @@ impl Expr {
                 let val = context
                     .memory()
                     .load(name)
-                    .ok_or_else(|| format!("Variable {} is not defined", name))?;
+                    .ok_or_else(|| Error::UndefinedVar { name: name.clone() })?;
                 Ok(val)
             }
             Expr::Const(v) => Ok(*v),
@@ -70,7 +63,7 @@ impl Expr {
 
                 let retval = context
                     .call(name, &args)?
-                    .ok_or_else(|| format!("Call to {} procedure inside expression", name))?;
+                    .ok_or_else(|| Error::CallToProcedure { name: name.clone() })?;
 
                 Ok(retval)
             }
@@ -100,22 +93,13 @@ pub mod parse {
     use super::*;
     use crate::types::parse::{integer, variable};
 
+    use crate::nom::{key, spaces, Input, Parsed};
     use nom::branch::alt;
-    use nom::bytes::complete::{tag, take_while};
     use nom::combinator::{map, opt};
     use nom::multi::{fold_many0, separated_list};
     use nom::sequence::{delimited, pair, preceded};
-    use nom::IResult;
 
-    fn spaces(input: &[u8]) -> IResult<&[u8], &[u8]> {
-        take_while(|c| (c as char).is_whitespace())(input)
-    }
-
-    fn key<'a>(key: &'a str) -> impl Fn(&'a [u8]) -> IResult<&'a [u8], &'a [u8]> {
-        preceded(spaces, tag(key))
-    }
-
-    fn factor(input: &[u8]) -> IResult<&[u8], Expr> {
+    fn factor(input: Input) -> Parsed<Expr> {
         let (input, minus) = opt(key("-"))(input)?;
         let (input, node) = alt((
             call,
@@ -133,54 +117,54 @@ pub mod parse {
         Ok((input, node))
     }
 
-    fn call(input: &[u8]) -> IResult<&[u8], Expr> {
+    fn call(input: Input) -> Parsed<Expr> {
         let (input, name) = variable(input)?;
         let (input, args) = delimited(key("("), separated_list(key(","), expr), key(")"))(input)?;
         Ok((input, Expr::Call(name, args)))
     }
 
-    fn mul_div_or_mod(input: &[u8]) -> IResult<&[u8], Op> {
+    fn mul_div_or_mod(input: Input) -> Parsed<Op> {
         match alt((key("*"), key("/"), key("%")))(input)? {
-            (input, b"*") => Ok((input, Op::Mul)),
-            (input, b"/") => Ok((input, Op::Div)),
-            (input, b"%") => Ok((input, Op::Mod)),
+            (input, "*") => Ok((input, Op::Mul)),
+            (input, "/") => Ok((input, Op::Div)),
+            (input, "%") => Ok((input, Op::Mod)),
             _ => unreachable!(),
         }
     }
 
-    fn term(input: &[u8]) -> IResult<&[u8], Expr> {
+    fn term(input: Input) -> Parsed<Expr> {
         let (input, lhs) = factor(input)?;
         fold_many0(pair(mul_div_or_mod, factor), lhs, |lhs, (op, rhs)| {
             Expr::Op(op, Box::new(lhs), Box::new(rhs))
         })(input)
     }
 
-    fn add_or_sub(input: &[u8]) -> IResult<&[u8], Op> {
+    fn add_or_sub(input: Input) -> Parsed<Op> {
         match alt((key("+"), key("-")))(input)? {
-            (input, b"+") => Ok((input, Op::Add)),
-            (input, b"-") => Ok((input, Op::Sub)),
+            (input, "+") => Ok((input, Op::Add)),
+            (input, "-") => Ok((input, Op::Sub)),
             _ => unreachable!(),
         }
     }
 
-    fn arithmetic(input: &[u8]) -> IResult<&[u8], Expr> {
+    fn arithmetic(input: Input) -> Parsed<Expr> {
         let (input, lhs) = term(input)?;
         fold_many0(pair(add_or_sub, term), lhs, |lhs, (op, rhs)| {
             Expr::Op(op, Box::new(lhs), Box::new(rhs))
         })(input)
     }
 
-    fn disjunction_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
+    fn disjunction_op(input: Input) -> Parsed<LogicOp> {
         let (input, _) = alt((key("!!"), key("||")))(input)?;
         Ok((input, LogicOp::Or))
     }
 
-    fn conjunction_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
+    fn conjunction_op(input: Input) -> Parsed<LogicOp> {
         let (input, _) = key("&&")(input)?;
         Ok((input, LogicOp::And))
     }
 
-    fn comparison_op(input: &[u8]) -> IResult<&[u8], LogicOp> {
+    fn comparison_op(input: Input) -> Parsed<LogicOp> {
         let (input, op) = alt((
             key("<="),
             key(">="),
@@ -191,40 +175,40 @@ pub mod parse {
         ))(input)?;
 
         let op = match op {
-            b"<" => LogicOp::Less,
-            b"<=" => LogicOp::LessOrEqual,
-            b">" => LogicOp::Greater,
-            b">=" => LogicOp::GreaterOrEqual,
-            b"==" => LogicOp::Eq,
-            b"!=" => LogicOp::NotEq,
+            "<" => LogicOp::Less,
+            "<=" => LogicOp::LessOrEqual,
+            ">" => LogicOp::Greater,
+            ">=" => LogicOp::GreaterOrEqual,
+            "==" => LogicOp::Eq,
+            "!=" => LogicOp::NotEq,
             _ => unreachable!(),
         };
 
         Ok((input, op))
     }
 
-    fn comparison(input: &[u8]) -> IResult<&[u8], Expr> {
+    fn comparison(input: Input) -> Parsed<Expr> {
         let (input, lhs) = arithmetic(input)?;
         fold_many0(pair(comparison_op, arithmetic), lhs, |lhs, (op, rhs)| {
             Expr::LogicOp(op, Box::new(lhs), Box::new(rhs))
         })(input)
     }
 
-    fn conjunction(input: &[u8]) -> IResult<&[u8], Expr> {
+    fn conjunction(input: Input) -> Parsed<Expr> {
         let (input, lhs) = comparison(input)?;
         fold_many0(pair(conjunction_op, comparison), lhs, |lhs, (op, rhs)| {
             Expr::LogicOp(op, Box::new(lhs), Box::new(rhs))
         })(input)
     }
 
-    fn disjunction(input: &[u8]) -> IResult<&[u8], Expr> {
+    fn disjunction(input: Input) -> Parsed<Expr> {
         let (input, lhs) = conjunction(input)?;
         fold_many0(pair(disjunction_op, conjunction), lhs, |lhs, (op, rhs)| {
             Expr::LogicOp(op, Box::new(lhs), Box::new(rhs))
         })(input)
     }
 
-    pub fn expr(input: &[u8]) -> IResult<&[u8], Expr> {
+    pub fn expr(input: Input) -> Parsed<Expr> {
         preceded(spaces, disjunction)(input)
     }
 }

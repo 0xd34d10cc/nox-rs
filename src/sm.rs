@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
 use crate::ops::{LogicOp, Op};
-use crate::statement::{self, Function, Statement};
+use crate::typecheck;
+use crate::statement::{Function, Statement};
 use crate::types::{Int, Result, Var};
 
 pub type Label = usize;
@@ -221,20 +222,18 @@ impl CompilationContext {
 }
 
 // convert from statement ast to list of stack machine instructions
-pub fn compile(statements: &statement::Program) -> Result<Program> {
-    let mut program = Program::new();
+pub fn compile(program: &typecheck::Program) -> Result<Program> {
+    let mut instructions = Program::new();
     let mut context = CompilationContext::new();
-    let main = statements
-        .entry()
-        .ok_or("No main function found (sm::compile)")?;
+    let main = program.entry();
 
-    context.compile_function(main, &mut program);
+    context.compile_function(main, &mut instructions);
 
-    for function in statements.functions() {
-        context.compile_function(function, &mut program);
+    for function in program.functions() {
+        context.compile_function(function, &mut instructions);
     }
 
-    Ok(program)
+    Ok(instructions)
 }
 
 pub struct StackMachine<'a, I, O> {

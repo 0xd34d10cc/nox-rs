@@ -68,7 +68,7 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
 
     // statements
     let (i, o, program) = {
-        let program = statement::Program::parse(program.trim().as_bytes()).unwrap();
+        let program = statement::Program::compile(program.trim()).unwrap();
         let mut memory = Memory::new();
         let mut input = inputs.clone();
         let mut output = Vec::new();

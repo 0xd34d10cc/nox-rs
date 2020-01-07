@@ -5,7 +5,7 @@ type Expr = crate::expr::Expr;
 type Context = crate::context::Memory;
 
 fn parse(input: &str) -> Expr {
-    Expr::parse(input.as_bytes()).unwrap()
+    Expr::parse(input).unwrap()
 }
 
 fn eval(expr: Expr, memory: &Context) -> Int {
@@ -26,7 +26,6 @@ fn eval(expr: Expr, memory: &Context) -> Int {
     };
 
     let result_var = Var::from("RESULT");
-
     // then in statements language
     let (s, program) = {
         let mut main = Vec::new();
@@ -35,8 +34,9 @@ fn eval(expr: Expr, memory: &Context) -> Int {
             main.push(set_var);
         }
         main.push(Statement::Assign(result_var.clone(), expr));
-
         let program = statement::Program::from_main(main);
+
+        let (_, program) = crate::typecheck::check(program).unwrap();
         let mut memory = Context::new();
         let mut input = EmptyInput;
         let mut output = IgnoreOutput;

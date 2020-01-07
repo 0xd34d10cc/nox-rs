@@ -1,4 +1,15 @@
+use snafu::Snafu;
+
 use crate::types::Int;
+
+#[derive(Debug, Snafu)]
+enum Error {
+    #[snafu(display("Attempt to divide by 0"))]
+    DivisionByZero,
+
+    #[snafu(display("Attempt to mod by 0"))]
+    ModZero,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum Op {
