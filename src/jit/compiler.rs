@@ -157,10 +157,6 @@ impl<'a> Compiler<'a> {
         op
     }
 
-    fn allocate_globals(&mut self, _program: &sm::Program) {
-        todo!()
-    }
-
     fn dyn_label(&mut self, label: sm::Label, ops: &mut Assembler) -> DynamicLabel {
         self.labels.get(&label).cloned().unwrap_or_else(|| {
             let dyn_label = ops.new_dynamic_label();
@@ -465,15 +461,25 @@ impl<'a> Compiler<'a> {
                     }
                 }
             }
-            sm::Instruction::Call(_) => todo!(),
-            sm::Instruction::Begin { .. } => todo!(),
-            sm::Instruction::End => todo!(),
+            _ => { /* ignore */ }
+            // sm::Instruction::Call(_) => todo!(),
+            // sm::Instruction::Begin { .. } => todo!(),
+            // sm::Instruction::End => todo!(),
         };
         Ok(())
     }
 
     pub fn compile(mut self, program: &sm::Program) -> Result<Program<'a>> {
-        self.allocate_globals(program);
+        // allocate globals
+        use crate::memory::AllocationError;
+        for global in program.globals() {
+            match self.globals.allocate(global.clone()) {
+                Err(AllocationError::OutOfMemory) => {
+                    return Err(AllocationError::OutOfMemory.into())
+                }
+                Err(AllocationError::AlreadyAllocated { .. }) | Ok(_) => { /* we're fine */ }
+            }
+        }
 
         let mut ops = Assembler::new().unwrap();
 

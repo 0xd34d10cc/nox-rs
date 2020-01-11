@@ -96,8 +96,9 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
     // let (i, o) = {
     //     let mut inputs = SharedInput::new(inputs);
     //     let mut outputs = SharedOutput::new(Vec::new());
-    //     let rt = Runtime::new(Box::new(inputs.clone()), Box::new(outputs.clone()));
-    //     let program = jit::Compiler::new().compile(&program, rt).unwrap();
+    //     let mut rt = Runtime::new(Box::new(inputs.clone()), Box::new(outputs.clone()));
+    //     let mut memory = Memory::new();
+    //     let program = jit::compile(&program, &mut *rt, &mut memory).unwrap();
     //     let retcode = program.run();
     //     let i = inputs.take();
     //     let o = outputs.take();
