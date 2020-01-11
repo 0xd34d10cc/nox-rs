@@ -1,13 +1,13 @@
-use snafu::Snafu;
+use thiserror::Error;
 
 use crate::types::Int;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Attempt to divide by 0"))]
+    #[error("Attempt to divide by 0")]
     DivisionByZero,
 
-    #[snafu(display("Attempt to mod by 0"))]
+    #[error("Attempt to mod by 0")]
     ModZero,
 }
 

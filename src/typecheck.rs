@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use snafu::{Snafu, ResultExt};
+use thiserror::Error;
 
 use crate::expr;
 use crate::context::{InputStream, Memory, OutputStream};
@@ -8,46 +8,43 @@ use crate::expr::Expr;
 use crate::statement::{self, Statement};
 use crate::types::{Int, Var};
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Warning {
-    #[snafu(display("Unused function '{}'", name))]
-    UnusedFunction { name: Var },
+    #[error("Unused function '{0}'")]
+    UnusedFunction(Var),
 
-    #[snafu(display("Unused variable '{}'", name))]
-    UnusedVariable { name: Var },
+    #[error("Unused variable '{0}'")]
+    UnusedVariable(Var),
 }
 
-#[derive(Debug, Snafu, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum Error {
-    #[snafu(display("No entry function"))]
+    #[error("No entry function")]
     NoEntryFunction,
 
-    #[snafu(display("Reference to unknown variable '{}'", name))]
-    UndefinedVar { name: Var },
+    #[error("Reference to unknown variable '{0}'")]
+    UndefinedVar(Var),
 
-    #[snafu(display("Call to undefined function: {}", name))]
-    UndefinedFunction { name: Var },
+    #[error("Call to undefined function: {0}")]
+    UndefinedFunction(Var),
 
-    #[snafu(display("Reference to uninitialized variable '{}'", name))]
-    UninitializedVar { name: Var },
+    #[error("Reference to uninitialized variable '{0}'")]
+    UninitializedVar(Var),
 
-    #[snafu(display(
-        "Invalid number of arguments for '{}' expected {} found {}",
-        name,
-        expected,
-        found
-    ))]
+    #[error(
+        "Invalid number of arguments for '{name}' expected {expected} found {found}"
+    )]
     InvalidNumberOfArgs {
         name: Var,
         expected: usize,
         found: usize,
     },
 
-    #[snafu(display("Not all control paths of function '{}' return value", name))]
-    NotAllControlPathsReturn { name: Var },
+    #[error("Not all control paths of function '{0}' return value")]
+    NotAllControlPathsReturn(Var),
 
-    #[snafu(display("Function {} has return statement without value", name))]
-    ReturnWithoutValue { name: Var },
+    #[error("Function {0} has return statement without value")]
+    ReturnWithoutValue(Var),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -234,10 +231,10 @@ impl Symbols {
         let state = self
             .storage_mut(var)
             .get_mut(var)
-            .ok_or_else(|| Error::UndefinedVar { name: var.clone() })?;
+            .ok_or_else(|| Error::UndefinedVar(var.clone()))?;
 
         if !state.initialized {
-            return Err(Error::UninitializedVar { name: var.clone() });
+            return Err(Error::UninitializedVar(var.clone()));
         }
 
         state.reference();
@@ -271,16 +268,16 @@ impl InitChecker<'_> {
             if !self.checked_functions.contains_key(&function.name) {
                 self.check_function(function)?;
 
-                self.warnings.push(Warning::UnusedFunction {
-                    name: function.name.clone(),
-                });
+                self.warnings.push(Warning::UnusedFunction(
+                    function.name.clone()
+                ));
             }
         }
 
         for (name, state) in self.symbols.globals() {
             if !state.referenced {
                 self.warnings
-                    .push(Warning::UnusedVariable { name: name.clone() });
+                    .push(Warning::UnusedVariable(name.clone()));
             }
         }
 
@@ -304,7 +301,7 @@ impl InitChecker<'_> {
         for (name, state) in self.symbols.locals().unwrap() {
             if !state.referenced {
                 self.warnings
-                    .push(Warning::UnusedVariable { name: name.clone() });
+                    .push(Warning::UnusedVariable(name.clone()));
             }
         }
 
@@ -331,9 +328,7 @@ impl InitChecker<'_> {
         let f = self
             .program
             .get(function)
-            .ok_or_else(|| Error::UndefinedFunction {
-                name: function.clone(),
-            })?;
+            .ok_or_else(|| Error::UndefinedFunction(function.clone()))?;
 
         if f.args.len() != args {
             return Err(Error::InvalidNumberOfArgs {
@@ -461,9 +456,7 @@ impl ControlFlowChecker<'_> {
         }
 
         if should_return && !actually_returns {
-            return Err(Error::NotAllControlPathsReturn {
-                name: f.name.clone(),
-            });
+            return Err(Error::NotAllControlPathsReturn(f.name.clone()));
         }
 
         self.validate_returns(&f.name, &f.body, actually_returns)?;
@@ -511,13 +504,9 @@ impl ControlFlowChecker<'_> {
                 Statement::Return(e) => {
                     if e.is_some() != should_return {
                         if should_return {
-                            return Err(Error::ReturnWithoutValue {
-                                name: Var::from(name),
-                            });
+                            return Err(Error::ReturnWithoutValue(Var::from(name)));
                         } else {
-                            return Err(Error::NotAllControlPathsReturn {
-                                name: Var::from(name),
-                            });
+                            return Err(Error::NotAllControlPathsReturn(Var::from(name)));
                         }
                     }
                 }
@@ -537,13 +526,13 @@ impl ControlFlowChecker<'_> {
 }
 
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum ExecutionError {
-    #[snafu(display("Failed to evaluate expression: {}", source))]
-    ExpressionError { source: expr::Error },
+    #[error("Failed to evaluate expression: {0}")]
+    Expression(#[from] expr::Error),
 
-    #[snafu(display("Unexpected end of input while reading {}", name))]
-    UnexpectedEndOfInput { name: Var },
+    #[error("Unexpected end of input while reading {0}")]
+    UnexpectedEndOfInput(Var),
 }
 
 pub type ExecutionResult<T> = std::result::Result<T, ExecutionError>;
@@ -632,7 +621,7 @@ where
                 if_true,
                 if_false,
             } => {
-                let c = condition.eval(self).context(ExpressionError{})?;
+                let c = condition.eval(self)?;
                 if c != 0 {
                     return self.execute_all(if_true);
                 } else {
@@ -640,7 +629,7 @@ where
                 };
             }
             Statement::While { condition, body } => {
-                while condition.eval(self).context(ExpressionError{})? != 0 {
+                while condition.eval(self)? != 0 {
                     if let Retcode::Return(e) = self.execute_all(body)? {
                         return Ok(Retcode::Return(e));
                     }
@@ -651,37 +640,36 @@ where
                     return Ok(Retcode::Return(e));
                 }
 
-                if condition.eval(self).context(ExpressionError{})? == 0 {
+                if condition.eval(self)? == 0 {
                     break;
                 }
             },
             Statement::Assign(name, value) => {
-                let value = value.eval(self).context(ExpressionError{})?;
+                let value = value.eval(self)?;
                 self.memory.store(name, value);
             }
             Statement::Read(name) => {
                 let value = self
                     .input
                     .read()
-                    .ok_or_else(|| ExecutionError::UnexpectedEndOfInput { name: name.clone() })?;
+                    .ok_or_else(|| ExecutionError::UnexpectedEndOfInput(name.clone()))?;
                 self.memory.store(name, value);
             }
             Statement::Write(expr) => {
-                let value = expr.eval(self).context(ExpressionError{})?;
+                let value = expr.eval(self)?;
                 self.output.write(value);
             }
             Statement::Call { name, args } => {
                 let args: Vec<_> = args
                     .iter()
                     .map(|arg| arg.eval(self))
-                    .collect::<expr::Result<_>>()
-                    .context(ExpressionError {})?;
+                    .collect::<expr::Result<_>>()?;
 
                 self.call(name, &args)?;
             }
             Statement::Return(e) => {
                 let retval = if let Some(e) = e {
-                    Some(e.eval(self).context(ExpressionError{})?)
+                    Some(e.eval(self)?)
                 } else {
                     None
                 };

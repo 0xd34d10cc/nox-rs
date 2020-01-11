@@ -1,17 +1,17 @@
 use std::fmt::Debug;
 
-use snafu::Snafu;
+use thiserror::Error;
 
 pub type Input<'a> = &'a str;
 pub type ParseError<'a> = nom::error::VerboseError<Input<'a>>;
 pub type Parsed<'a, O> = nom::IResult<Input<'a>, O, ParseError<'a>>;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("{}", error))]
-    Failed { error: String },
+    #[error("{0}")]
+    Failed(String),
 
-    #[snafu(display("Incomplete parse of {}:\nParsed: {}\nRest: {}", what, parsed, rest))]
+    #[error("Incomplete parse of {what}:\nParsed: {parsed}\nRest: {rest}")]
     Incomplete {
         what: &'static str,
         parsed: String,
@@ -39,7 +39,7 @@ fn err(e: nom::Err<ParseError>, what: &str, input: &str) -> Error {
         nom::Err::Incomplete(needed) => format!("Incomplete parse of {}: {:?}", what, needed),
     };
 
-    Error::Failed { error }
+    Error::Failed(error)
 }
 
 fn incomplete<T: Debug>(value: T, what: &'static str, rest: Input) -> Error {

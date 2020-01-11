@@ -3,7 +3,7 @@ use std::io::{self, Stdin, Stdout};
 
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use snafu::{ResultExt, Snafu};
+use thiserror::Error;
 
 use crate::context::Memory;
 use crate::jit;
@@ -34,19 +34,19 @@ impl Command {
     }
 }
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum CommandError {
-    #[snafu(display("Parse error: {}", source))]
-    Parse { source: crate::nom::Error },
+    #[error("Parse error: {0}")]
+    Parse(#[from] crate::nom::Error),
 
-    #[snafu(display("Compilation error: {}", 0))]
-    Compilation { source: Box<dyn Error> },
+    #[error("Compilation error: {0}")]
+    Compilation(Box<dyn Error>),
 
-    #[snafu(display("Type error: {}", source))]
-    Type { source: typecheck::Error },
+    #[error("Type error: {0}")]
+    Type(#[from] typecheck::Error),
 
-    #[snafu(display("Runtime error: {}", source))]
-    Runtime { source: Box<dyn Error> },
+    #[error("Runtime error: {0}")]
+    Runtime(Box<dyn Error>),
 }
 
 pub struct Interpreter {
@@ -70,15 +70,15 @@ impl Interpreter {
                 self.memory
                     .globals_mut()
                     .remove(&var)
-                    .ok_or_else(|| CommandError::Runtime {
-                        source: format!("No such variable: {}", var).into(),
-                    })?;
+                    .ok_or_else(|| CommandError::Runtime(
+                        format!("No such variable: {}", var).into(),
+                    ))?;
             }
             Command::ResetEnv => self.memory.clear(),
             Command::ShowEnv => println!("{:?}", self.memory),
             Command::ShowStatements(p) => println!("{:#?}", p),
             Command::RunStatements(p) => {
-                let (warnings, p) = typecheck::Program::check(p).context(Type {})?;
+                let (warnings, p) = typecheck::Program::check(p)?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
@@ -88,67 +88,68 @@ impl Interpreter {
                 let result = p
                     .run(&mut self.memory, &mut self.input, &mut self.output)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-                    .context(Runtime {})?;
+                    .map_err(|e| CommandError::Runtime(e))?;
 
                 if let Some(val) = result {
                     println!("Return code: {}", val);
                 }
             }
             Command::ShowSMInstructions(p) => {
-                let (warnings, p) = typecheck::Program::check(p).context(Type {})?;
+                let (warnings, p) = typecheck::Program::check(p)?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
                     }
                 }
 
-                let p = sm::compile(&p).context(Compilation {})?;
+                let p = sm::compile(&p).map_err(CommandError::Compilation)?;
                 for instruction in p.instructions() {
                     println!("{:?}", instruction)
                 }
             }
             Command::RunSMInstructions(p) => {
-                let (warnings, p) = typecheck::Program::check(p).context(Type {})?;
+                let (warnings, p) = typecheck::Program::check(p)?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
                     }
                 }
 
-                let p = sm::compile(&p).context(Compilation {})?;
+                let p = sm::compile(&p).map_err(CommandError::Compilation)?;
                 let mut machine =
                     sm::StackMachine::new(&mut self.memory, &mut self.input, &mut self.output);
-                machine.run(&p).context(Runtime {})?;
+                machine.run(&p).map_err(CommandError::Runtime)?;
             }
             Command::ShowJITAsm(p) => {
-                let (warnings, p) = typecheck::Program::check(p).context(Type {})?;
+                let (warnings, p) = typecheck::Program::check(p)?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
                     }
                 }
 
-                let p = sm::compile(&p).context(Compilation {})?;
+                let p = sm::compile(&p).map_err(CommandError::Compilation)?;
                 let p = jit::Compiler::new()
                     .compile(&p, jit::Runtime::stdio())
-                    .context(Compilation {})?;
+                    .map_err(CommandError::Compilation)?;
                 println!("Memory map:\n{}", p.globals());
                 for instruction in p.disassemble() {
                     println!("{}", instruction);
                 }
             }
             Command::RunJIT(p) => {
-                let (warnings, p) = typecheck::Program::check(p).context(Type {})?;
+                let (warnings, p) = typecheck::Program::check(p)?;
                 if !warnings.is_empty() {
                     for warning in warnings {
                         println!("Warning: {}", warning);
                     }
                 }
 
-                let p = sm::compile(&p).context(Compilation {})?;
+                let p = sm::compile(&p).map_err(CommandError::Compilation)?;
                 let p = jit::Compiler::new()
                     .compile(&p, jit::Runtime::stdio())
-                    .context(Compilation {})?;
+                    .map_err(CommandError::Compilation)?;
+
                 let retcode = p.run();
                 if retcode != 0 {
                     println!("Failure: {}", retcode);
@@ -174,7 +175,7 @@ impl Interpreter {
                     rl.add_history_entry(line.as_str());
 
                     let result = Command::parse(line.as_str())
-                        .context(Parse {})
+                        .map_err(CommandError::Parse)
                         .and_then(|command| self.execute(command));
 
                     if let Err(e) = result {

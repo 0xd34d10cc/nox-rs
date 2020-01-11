@@ -10,7 +10,7 @@ fn compile(program: &str) -> Result<(), Error> {
 #[test]
 fn undefined_variable() {
     assert_eq!(
-        Err(Error::UndefinedVar { name: "x".into() }),
+        Err(Error::UndefinedVar("x".into())),
         compile(
             "
             write(x)
@@ -61,7 +61,7 @@ fn possibly_uninitialilzed_global() {
 #[test]
 fn uninitialized_local() {
     assert_eq!(
-        Err(Error::UninitializedVar { name: "x".into() }),
+        Err(Error::UninitializedVar("x".into())),
         compile(
             "
             fun kek(b) local x {
@@ -77,7 +77,7 @@ fn uninitialized_local() {
 #[test]
 fn uninitialized_global() {
     assert_eq!(
-        Err(Error::UndefinedVar { name: "x".into() }),
+        Err(Error::UndefinedVar("x".into())),
         compile(
             "
             fun kek() {
@@ -114,7 +114,7 @@ fn invalid_number_of_args() {
 #[test]
 fn undefined_function() {
     assert_eq!(
-        Err(Error::UndefinedFunction { name: "foo".into() }),
+        Err(Error::UndefinedFunction("foo".into())),
         compile(
             "
             fun kek(b) {
@@ -130,7 +130,7 @@ fn undefined_function() {
 #[test]
 fn not_all_control_paths_return_value() {
     assert_eq!(
-        Err(Error::NotAllControlPathsReturn { name: "kek".into() }),
+        Err(Error::NotAllControlPathsReturn("kek".into())),
         compile(
             "
             fun kek(b) {
@@ -164,7 +164,7 @@ fn use_of_function_as_procedure() {
 #[test]
 fn use_of_procedure_in_expression() {
     assert_eq!(
-        Err(Error::NotAllControlPathsReturn { name: "kek".into() }),
+        Err(Error::NotAllControlPathsReturn("kek".into())),
         compile(
             "
             fun kek(b) {
@@ -220,7 +220,7 @@ fn complete_do_while() {
 #[test]
 fn incomplete_while() {
     assert_eq!(
-        Err(Error::NotAllControlPathsReturn { name: "kek".into() }),
+        Err(Error::NotAllControlPathsReturn("kek".into())),
         compile(
             "
             fun kek(b) {
