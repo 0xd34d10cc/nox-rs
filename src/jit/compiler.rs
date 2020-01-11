@@ -2,106 +2,16 @@
 compile_error!("JIT is implemented only for x86-64");
 
 use std::collections::HashMap;
-use std::fmt;
-use std::io;
-use std::mem;
 
-use capstone::prelude::*;
 use dynasm::dynasm;
 use dynasmrt::x64::Assembler;
-use dynasmrt::{AssemblyOffset, DynamicLabel, DynasmApi, DynasmLabelApi, ExecutableBuffer};
+use dynasmrt::{DynamicLabel, DynasmApi, DynasmLabelApi};
 
-use crate::context::{InputStream, OutputStream};
+use super::{Program, Runtime};
+use crate::memory::Memory;
 use crate::ops::{LogicOp, Op};
 use crate::sm;
-use crate::types::{Int, Result, Var};
-
-pub struct Runtime {
-    input: Box<dyn InputStream>,
-    output: Box<dyn OutputStream>,
-}
-
-impl Runtime {
-    unsafe extern "win64" fn read(p: *mut Runtime) -> Int {
-        let rt = &mut *p;
-        rt.input.read().unwrap_or(-1)
-    }
-
-    unsafe extern "win64" fn write(p: *mut Runtime, val: Int) {
-        let rt = &mut *p;
-        rt.output.write(val as Int)
-    }
-
-    pub fn stdio() -> Box<Self> {
-        Runtime::new(Box::new(io::stdin()), Box::new(io::stdout()))
-    }
-
-    pub fn new(input: Box<dyn InputStream>, output: Box<dyn OutputStream>) -> Box<Self> {
-        Box::new(Runtime { input, output })
-    }
-}
-
-pub struct Program {
-    memory: ExecutableBuffer,
-    globals: Globals,
-    entrypoint: AssemblyOffset,
-    // TODO: use phantom lifetime to make sure that Program will not outlive the Compiler
-    #[allow(unused)]
-    runtime: Box<Runtime>,
-}
-
-impl Program {
-    pub fn run(&self) -> i64 {
-        let main_fn: extern "win64" fn() -> i64 =
-            unsafe { mem::transmute(self.memory.ptr(self.entrypoint)) };
-
-        main_fn()
-    }
-
-    pub fn disassemble(&self) -> Vec<String> {
-        let cs = Capstone::new()
-            .x86()
-            .mode(arch::x86::ArchMode::Mode64)
-            .syntax(arch::x86::ArchSyntax::Intel)
-            .detail(true)
-            .build()
-            .expect("Failed to create Capstone object");
-
-        let begin = self.memory.as_ptr() as usize;
-        let entry = self.memory.ptr(self.entrypoint) as usize;
-        debug_assert!(entry >= begin);
-
-        let offset = entry - begin;
-        let base_address = entry as u64;
-
-        let instructions = cs
-            .disasm_all(&self.memory[offset..], base_address)
-            .expect("Failed to disassemble");
-
-        instructions
-            .iter()
-            .map(|instruction| instruction.to_string())
-            .collect()
-    }
-
-    pub fn globals(&self) -> &Globals {
-        &self.globals
-    }
-
-    unsafe fn from_parts(
-        memory: ExecutableBuffer,
-        globals: Globals,
-        entrypoint: AssemblyOffset,
-        runtime: Box<Runtime>,
-    ) -> Self {
-        Program {
-            memory,
-            globals,
-            entrypoint,
-            runtime,
-        }
-    }
-}
+use crate::types::{Int, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -198,78 +108,17 @@ impl Operand {
     }
 }
 
-#[derive(Default, Debug)]
-pub struct Globals {
-    values: Box<[Int]>,
-    map: HashMap<Var, usize>,
-}
-
-impl fmt::Display for Globals {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "base: 0x{:x}", self.values.as_ptr() as usize)?;
-        for (name, index) in self.map.iter() {
-            writeln!(
-                f,
-                "{} @ 0x{:x} -> {}",
-                name, &self.values[*index] as *const Int as usize, self.values[*index]
-            )?;
-        }
-        Ok(())
-    }
-}
-
-impl Globals {
-    #[allow(unused)]
-    pub fn load(&self, var: &Var) -> Option<Int> {
-        let index = self.map.get(var)?;
-        Some(self.values[*index] as i64)
-    }
-
-    fn allocate(program: &sm::Program) -> Result<Globals> {
-        let mut globals = Globals::default();
-        let mut index = 0;
-
-        for instruction in program.instructions() {
-            match instruction {
-                sm::Instruction::Store(var) => {
-                    globals.map.insert(var.clone(), index);
-                    index += 1;
-                }
-                sm::Instruction::Load(var) => {
-                    if !globals.map.contains_key(var) {
-                        return Err(format!(
-                            "Attempt to read from uninitialized variable: {}",
-                            var
-                        )
-                        .into());
-                    }
-                }
-                _ => { /* ignore */ }
-            }
-        }
-
-        globals.values = vec![0; index].into_boxed_slice();
-        Ok(globals)
-    }
-
-    fn get_ptr(&mut self, var: &Var) -> Option<*mut Int> {
-        let index = self.map.get(var)?;
-        let ptr = &mut self.values[*index] as *mut Int;
-        Some(ptr)
-    }
-}
-
-struct CompilationContext {
+pub struct Compiler<'a> {
     free_registers: Vec<Register>,
     stack: Vec<Operand>,
-    globals: Globals,
-    runtime: Box<Runtime>,
+    globals: &'a mut Memory,
+    runtime: &'a mut Runtime,
     labels: HashMap<sm::Label, DynamicLabel>,
 }
 
-impl CompilationContext {
-    fn new(globals: Globals, runtime: Box<Runtime>) -> Self {
-        CompilationContext {
+impl<'a> Compiler<'a> {
+    pub fn new<'b>(runtime: &'b mut Runtime, globals: &'b mut Memory) -> Compiler<'b> {
+        Compiler {
             free_registers: vec![Register::R12, Register::R13, Register::R14, Register::R15],
             stack: Vec::new(),
             globals,
@@ -308,20 +157,16 @@ impl CompilationContext {
         op
     }
 
+    fn allocate_globals(&mut self, _program: &sm::Program) {
+        todo!()
+    }
+
     fn dyn_label(&mut self, label: sm::Label, ops: &mut Assembler) -> DynamicLabel {
         self.labels.get(&label).cloned().unwrap_or_else(|| {
             let dyn_label = ops.new_dynamic_label();
             self.labels.insert(label, dyn_label);
             dyn_label
         })
-    }
-}
-
-pub struct Compiler {}
-
-impl Compiler {
-    pub fn new() -> Self {
-        Compiler {}
     }
 
     fn div(&mut self, lhs: Operand, rhs: Operand, ops: &mut Assembler) {
@@ -341,14 +186,7 @@ impl Compiler {
     }
 
     // compile 'and' or 'or' operation
-    fn and_or(
-        &mut self,
-        lhs: Operand,
-        rhs: Operand,
-        is_and: bool,
-        context: &mut CompilationContext,
-        ops: &mut Assembler,
-    ) {
+    fn and_or(&mut self, lhs: Operand, rhs: Operand, is_and: bool, ops: &mut Assembler) {
         match (lhs, rhs) {
             (Operand::Register(lhs), Operand::Register(rhs)) => {
                 let (l, r) = (lhs as u8, rhs as u8);
@@ -371,7 +209,7 @@ impl Compiler {
                     )
                 }
 
-                context.push(Operand::Register(lhs))
+                self.push(Operand::Register(lhs))
             }
             // TODO: optimize for more cases, this fallback should happen only if
             //       both operands are on stack
@@ -397,7 +235,7 @@ impl Compiler {
                     )
                 }
 
-                let dst = context.allocate();
+                let dst = self.allocate();
                 dst.load_from(Register::RAX, ops);
             }
         }
@@ -406,24 +244,23 @@ impl Compiler {
     fn compile_instruction(
         &mut self,
         ops: &mut Assembler,
-        context: &mut CompilationContext,
         instruction: &sm::Instruction,
     ) -> Result<()> {
         match instruction {
             sm::Instruction::Label(label) => {
                 let offset = ops.offset();
-                let dyn_label = context.dyn_label(*label, ops);
+                let dyn_label = self.dyn_label(*label, ops);
                 ops.labels_mut().define_dynamic(dyn_label, offset)?;
             }
             sm::Instruction::Jump(label) => {
-                let dyn_label = context.dyn_label(*label, ops);
+                let dyn_label = self.dyn_label(*label, ops);
                 dynasm!(ops
                     ; jmp =>dyn_label
                 );
             }
             sm::Instruction::JumpIfZero(label) => {
-                let dyn_label = context.dyn_label(*label, ops);
-                let top = context.pop().ok_or("Empty stack (jz)")?;
+                let dyn_label = self.dyn_label(*label, ops);
+                let top = self.pop().ok_or("Empty stack (jz)")?;
                 match top {
                     Operand::Register(r) => dynasm!(ops
                         ; test Rq(r as u8), Rq(r as u8)
@@ -440,8 +277,8 @@ impl Compiler {
                 )
             }
             sm::Instruction::JumpIfNotZero(label) => {
-                let dyn_label = context.dyn_label(*label, ops);
-                let top = context.pop().ok_or("Empty stack (jnz)")?;
+                let dyn_label = self.dyn_label(*label, ops);
+                let top = self.pop().ok_or("Empty stack (jnz)")?;
                 match top {
                     Operand::Register(r) => dynasm!(ops
                         ; test Rq(r as u8), Rq(r as u8)
@@ -458,13 +295,13 @@ impl Compiler {
                 )
             }
             sm::Instruction::Const(c) => {
-                let dst = context.allocate();
+                let dst = self.allocate();
                 dst.store_const(*c, ops);
             }
             sm::Instruction::Write => {
-                let src = context.pop().ok_or("Empty stack (write)")?;
-                debug_assert!(context.stack.is_empty());
-                let rt = &mut *context.runtime as *mut Runtime;
+                let src = self.pop().ok_or("Empty stack (write)")?;
+                debug_assert!(self.stack.is_empty());
+                let rt = &mut *self.runtime as *mut Runtime;
                 src.store_into(Register::RDX, ops);
                 dynasm!(ops
                     ; mov rcx, QWORD rt as _
@@ -473,9 +310,9 @@ impl Compiler {
                 )
             }
             sm::Instruction::Read => {
-                debug_assert!(context.stack.is_empty());
-                let dst = context.allocate();
-                let rt = &mut *context.runtime as *mut Runtime;
+                debug_assert!(self.stack.is_empty());
+                let dst = self.allocate();
+                let rt = &mut *self.runtime as *mut Runtime;
                 dynasm!(ops
                     ; mov rcx, QWORD rt as _
                     ; mov rax, QWORD Runtime::read as _
@@ -484,32 +321,32 @@ impl Compiler {
                 dst.load_from(Register::RAX, ops);
             }
             sm::Instruction::Store(var) => {
-                let src = context.pop().ok_or("Empty stack (store)")?;
-                let dst = context
+                let src = self.pop().ok_or("Empty stack (store)")?;
+                let dst = self
                     .globals
                     .get_ptr(var)
                     .ok_or("Failed to find global (store)")?;
                 src.store_to_memory(dst, ops);
             }
             sm::Instruction::Load(var) => {
-                let src = context
+                let src = self
                     .globals
                     .get_ptr(var)
                     .ok_or("Failed to find global (load)")?;
-                let dst = context.allocate();
+                let dst = self.allocate();
                 dst.load_from_memory(src, ops);
             }
             sm::Instruction::Op(Op::Div) => {
-                let rhs = context.pop().ok_or("Empty stack (div, rhs)")?;
-                let lhs = context.pop().ok_or("Empty stack (div, lhs)")?;
-                let dst = context.allocate();
+                let rhs = self.pop().ok_or("Empty stack (div, rhs)")?;
+                let lhs = self.pop().ok_or("Empty stack (div, lhs)")?;
+                let dst = self.allocate();
                 self.div(lhs, rhs, ops);
                 dst.load_from(Register::RAX, ops);
             }
             sm::Instruction::Op(Op::Mod) => {
-                let rhs = context.pop().ok_or("Empty stack (mod, rhs)")?;
-                let lhs = context.pop().ok_or("Empty stack (mod, lhs)")?;
-                let dst = context.allocate();
+                let rhs = self.pop().ok_or("Empty stack (mod, rhs)")?;
+                let lhs = self.pop().ok_or("Empty stack (mod, lhs)")?;
+                let dst = self.allocate();
                 self.div(lhs, rhs, ops);
                 dst.load_from(Register::RDX, ops);
             }
@@ -547,30 +384,30 @@ impl Compiler {
                     }
                 };
 
-                let rhs = context.pop().ok_or("Empty stack (op, rhs)")?;
-                let lhs = context.pop().ok_or("Empty stack (op, lhs)")?;
+                let rhs = self.pop().ok_or("Empty stack (op, rhs)")?;
+                let lhs = self.pop().ok_or("Empty stack (op, lhs)")?;
                 match lhs {
                     Operand::Register(lhs) => {
                         compile_op(lhs, rhs, ops);
-                        context.push(Operand::Register(lhs));
+                        self.push(Operand::Register(lhs));
                     }
                     Operand::Stack(_) => {
                         lhs.store_into(Register::RAX, ops);
                         compile_op(Register::RAX, rhs, ops);
-                        let dst = context.allocate();
+                        let dst = self.allocate();
                         dst.load_from(Register::RAX, ops);
                     }
                 };
             }
             sm::Instruction::LogicOp(LogicOp::And) => {
-                let rhs = context.pop().ok_or("Empty stack (and, rhs)")?;
-                let lhs = context.pop().ok_or("Empty stack (and, lhs)")?;
-                self.and_or(lhs, rhs, true /* is_and */, context, ops);
+                let rhs = self.pop().ok_or("Empty stack (and, rhs)")?;
+                let lhs = self.pop().ok_or("Empty stack (and, lhs)")?;
+                self.and_or(lhs, rhs, true /* is_and */, ops);
             }
             sm::Instruction::LogicOp(LogicOp::Or) => {
-                let rhs = context.pop().ok_or("Empty stack (or, rhs)")?;
-                let lhs = context.pop().ok_or("Empty stack (or, lhs)")?;
-                self.and_or(lhs, rhs, false /* is_and */, context, ops);
+                let rhs = self.pop().ok_or("Empty stack (or, rhs)")?;
+                let lhs = self.pop().ok_or("Empty stack (or, lhs)")?;
+                self.and_or(lhs, rhs, false /* is_and */, ops);
             }
             sm::Instruction::LogicOp(op) => {
                 let set = |dst: Register, ops: &mut Assembler| {
@@ -600,9 +437,9 @@ impl Compiler {
                     );
                 };
 
-                let rhs = context.pop().ok_or("Empty stack (logic, rhs)")?;
-                let lhs = context.pop().ok_or("Empty stack (logic, lhs)")?;
-                let dst = context.allocate();
+                let rhs = self.pop().ok_or("Empty stack (logic, rhs)")?;
+                let lhs = self.pop().ok_or("Empty stack (logic, lhs)")?;
+                let dst = self.allocate();
 
                 match (lhs, rhs) {
                     (Operand::Register(lhs), Operand::Register(rhs)) => dynasm!(ops
@@ -635,11 +472,10 @@ impl Compiler {
         Ok(())
     }
 
-    pub fn compile(&mut self, program: &sm::Program, runtime: Box<Runtime>) -> Result<Program> {
-        let mut ops = Assembler::new().unwrap();
+    pub fn compile(mut self, program: &sm::Program) -> Result<Program<'a>> {
+        self.allocate_globals(program);
 
-        let globals = Globals::allocate(program)?;
-        let mut context = CompilationContext::new(globals, runtime);
+        let mut ops = Assembler::new().unwrap();
 
         // prologue
         let entrypoint = ops.offset();
@@ -664,7 +500,7 @@ impl Compiler {
 
         // actual code
         for instruction in program.instructions() {
-            self.compile_instruction(&mut ops, &mut context, instruction)?;
+            self.compile_instruction(&mut ops, instruction)?;
         }
 
         // epilogue
@@ -693,6 +529,7 @@ impl Compiler {
         let memory = ops
             .finalize()
             .expect("finalize() shouldn't fail if commit() have not failed");
-        Ok(unsafe { Program::from_parts(memory, context.globals, entrypoint, context.runtime) })
+
+        Ok(unsafe { Program::from_parts(memory, entrypoint, self.globals, self.runtime) })
     }
 }

@@ -11,6 +11,7 @@ dynasm = "0.5.2"
 dynasmrt = "0.5.2"
 capstone = "0.6.0"
 thiserror = "1.0.9"
+slab = "0.4.2"
 
 [features]
 generated = []
