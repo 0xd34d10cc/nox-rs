@@ -2,9 +2,18 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
+mod expr;
+mod program;
+mod statement;
+mod types;
+
 pub type Input<'a> = &'a str;
 pub type ParseError<'a> = nom::error::VerboseError<Input<'a>>;
 pub type Parsed<'a, O> = nom::IResult<Input<'a>, O, ParseError<'a>>;
+
+pub use self::expr::expr;
+pub use self::program::{program, statements, statements1, Function, Program, Statement};
+pub use self::types::{integer, variable};
 
 #[derive(Debug, Error)]
 pub enum Error {

@@ -1,16 +1,16 @@
 #![feature(proc_macro_hygiene)] // for dynasm
 
-mod context;
-mod expr;
-mod interpreter;
-mod jit;
-mod nom;
-mod ops;
 #[cfg(test)]
 mod regression;
+
+mod interpreter;
+mod io;
+mod jit;
+mod memory;
+mod ops;
 mod sm;
 mod statement;
-mod typecheck;
+mod syntax;
 mod types;
 
 use std::error::Error;

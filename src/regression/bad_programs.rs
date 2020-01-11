@@ -1,10 +1,11 @@
-use crate::statement::Program;
-use crate::typecheck::Error;
+use crate::statement::{self, CompilationError, TypeError as Error};
 
 fn compile(program: &str) -> Result<(), Error> {
-    let program = Program::parse(program.trim()).unwrap();
-    let _ = crate::typecheck::Program::check(program)?;
-    Ok(())
+    match statement::compile(program.trim()) {
+        Err(CompilationError::Parse(e)) => panic!("{}", e),
+        Err(CompilationError::Type(e)) => Err(e),
+        Ok(_) => Ok(())
+    }
 }
 
 #[test]

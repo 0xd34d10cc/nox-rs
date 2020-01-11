@@ -10,10 +10,11 @@ mod deep_expressions;
 #[cfg(feature = "generated")]
 mod generated;
 
-use crate::context::{InputStream, Memory, OutputStream};
+use crate::memory::ScopedMemory;
+use crate::io::{InputStream, OutputStream};
 // use crate::jit::{self, Runtime};
-use crate::sm::{self, StackMachine};
-use crate::typecheck;
+use crate::sm;
+use crate::statement;
 use crate::types::Int;
 
 #[derive(Clone)]
@@ -69,11 +70,11 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
 
     // statements
     let (i, o, program) = {
-        let program = typecheck::Program::compile(program.trim()).unwrap();
-        let mut memory = Memory::new();
+        let program = statement::compile(program.trim()).unwrap();
+        let mut memory = ScopedMemory::new();
         let mut input = inputs.clone();
         let mut output = Vec::new();
-        program.run(&mut memory, &mut input, &mut output).unwrap();
+        statement::run(&program, &mut memory, &mut input, &mut output).unwrap();
         (input, output, program)
     };
     assert_eq!(stdin.len() - i.len(), reads);
@@ -82,12 +83,10 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
     // stack machine
     let (i, o, _program) = {
         let program = sm::compile(&program).unwrap();
-        let mut memory = Memory::new();
+        let mut memory = ScopedMemory::new();
         let mut input = inputs.clone();
         let mut output = Vec::new();
-        let mut machine = StackMachine::new(&mut memory, &mut input, &mut output);
-        machine.run(&program).unwrap();
-        assert_eq!(machine.pop(), None);
+        sm::run(&program, &mut memory, &mut input, &mut output).unwrap();
         (input, output, program)
     };
     assert_eq!(stdin.len() - i.len(), reads);
