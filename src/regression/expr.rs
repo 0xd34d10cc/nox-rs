@@ -12,6 +12,7 @@ fn eval(expr: Expr, globals: &Context) -> Int {
     use crate::io::{EmptyInput, IgnoreOutput};
     use crate::memory::ScopedMemory;
     use crate::sm;
+    // use crate::jit;
     use crate::statement;
     use crate::syntax::Statement;
     use crate::types::Var;
@@ -77,17 +78,16 @@ fn eval(expr: Expr, globals: &Context) -> Int {
 
     // then via JIT
     // let jit = {
-    //     let program = crate::jit::Compiler::new()
-    //         .compile(&program, crate::jit::Runtime::stdio())
-    //         .unwrap();
+    //     let mut rt = jit::Runtime::stdio();
+    //     let mut memory = Memory::new();
+    //     let program = jit::compile(&program, &mut *rt, &mut memory).unwrap();
     //     let retcode = program.run();
-    //     let jit = program.globals().load(&result_var).unwrap();
+    //     let jit = memory.load(&result_var).unwrap();
     //     assert_eq!(retcode, 0);
     //     jit
     // };
     // assert_eq!(jit, sm);
 
-    // jit
     sm
 }
 
