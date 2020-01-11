@@ -11,11 +11,12 @@ fn parse(input: &str) -> Expr {
 fn eval(expr: Expr, memory: &Context) -> Int {
     use crate::context::{EmptyInput, IgnoreOutput};
     use crate::sm::{self, StackMachine};
-    use crate::statement::{self, ExecutionContext, Statement};
+    use crate::typecheck::{self, ExecutionContext};
+    use crate::statement::{self, Statement};
     use crate::types::Var;
 
     let e = {
-        let program = statement::Program::from_main(Vec::new());
+        let program = typecheck::Program::empty();
         let mut mem = memory.clone();
         let mut input = EmptyInput;
         let mut output = IgnoreOutput;
@@ -36,7 +37,7 @@ fn eval(expr: Expr, memory: &Context) -> Int {
         main.push(Statement::Assign(result_var.clone(), expr));
         let program = statement::Program::from_main(main);
 
-        let (_, program) = crate::typecheck::check(program).unwrap();
+        let (_, program) = crate::typecheck::Program::check(program).unwrap();
         let mut memory = Context::new();
         let mut input = EmptyInput;
         let mut output = IgnoreOutput;

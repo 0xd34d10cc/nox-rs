@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
 use crate::ops::{LogicOp, Op};
-use crate::statement::{Function, Statement};
-use crate::typecheck;
+use crate::statement::Statement;
+use crate::typecheck::{self, Function};
 use crate::types::{Int, Result, Var};
 
 pub type Label = usize;
@@ -198,6 +198,7 @@ impl CompilationContext {
     fn compile_function(&mut self, function: &Function, program: &mut Program) {
         let Function {
             name,
+            returns_value: _,
             args,
             locals,
             body,
@@ -225,7 +226,7 @@ impl CompilationContext {
 pub fn compile(program: &typecheck::Program) -> Result<Program> {
     let mut instructions = Program::new();
     let mut context = CompilationContext::new();
-    let main = program.entry();
+    let main = program.entry().ok_or("No entry function")?;
 
     context.compile_function(main, &mut instructions);
 

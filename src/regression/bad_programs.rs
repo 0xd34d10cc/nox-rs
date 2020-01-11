@@ -3,7 +3,8 @@ use crate::typecheck::Error;
 
 fn compile(program: &str) -> Result<(), Error> {
     let program = Program::parse(program.trim()).unwrap();
-    crate::typecheck::check(program).map(|_| ())
+    let _ = crate::typecheck::Program::check(program)?;
+    Ok(())
 }
 
 #[test]

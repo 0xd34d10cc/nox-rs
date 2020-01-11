@@ -13,7 +13,7 @@ mod generated;
 use crate::context::{InputStream, Memory, OutputStream};
 // use crate::jit::{self, Runtime};
 use crate::sm::{self, StackMachine};
-use crate::statement;
+use crate::typecheck;
 use crate::types::Int;
 
 #[derive(Clone)]
@@ -69,7 +69,7 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
 
     // statements
     let (i, o, program) = {
-        let program = statement::Program::compile(program.trim()).unwrap();
+        let program = typecheck::Program::compile(program.trim()).unwrap();
         let mut memory = Memory::new();
         let mut input = inputs.clone();
         let mut output = Vec::new();
