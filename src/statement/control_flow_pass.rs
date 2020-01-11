@@ -1,8 +1,8 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 
-use crate::types::Var;
+use super::program::{Error, Result, Warning};
 use crate::syntax::{self, Statement};
-use super::program::{Warning, Error, Result};
+use crate::types::Var;
 
 pub struct ControlFlowPass<'a> {
     program: &'a syntax::Program,

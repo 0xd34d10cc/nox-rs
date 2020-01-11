@@ -1,8 +1,8 @@
-use crate::memory::ScopedMemory;
 use crate::io::{InputStream, OutputStream};
+use crate::memory::ScopedMemory;
 use crate::types::{Int, Result};
 
-use super::program::{Program, Labels, Instruction, Label};
+use super::program::{Instruction, Label, Labels, Program};
 
 type Stack = Vec<Int>;
 
@@ -130,10 +130,11 @@ where
         use crate::memory::AllocationError;
 
         for global in program.globals() {
-            match self.memory.globals_mut()
-                .allocate(global.clone()) {
-                Err(AllocationError::OutOfMemory) => return Err(AllocationError::OutOfMemory.into()),
-                Err(AllocationError::AlreadyAllocated{ .. }) | Ok(_) => { /* we're fine */ }
+            match self.memory.globals_mut().allocate(global.clone()) {
+                Err(AllocationError::OutOfMemory) => {
+                    return Err(AllocationError::OutOfMemory.into())
+                }
+                Err(AllocationError::AlreadyAllocated { .. }) | Ok(_) => { /* we're fine */ }
             }
         }
 

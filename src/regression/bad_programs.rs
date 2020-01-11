@@ -4,7 +4,7 @@ fn compile(program: &str) -> Result<(), Error> {
     match statement::compile(program.trim()) {
         Err(CompilationError::Parse(e)) => panic!("{}", e),
         Err(CompilationError::Type(e)) => Err(e),
-        Ok(_) => Ok(())
+        Ok(_) => Ok(()),
     }
 }
 

@@ -8,8 +8,8 @@ use dynasmrt::x64::Assembler;
 use dynasmrt::{DynamicLabel, DynasmApi, DynasmLabelApi};
 
 use super::{Program, Runtime};
-use crate::ops::{Op, LogicOp};
 use crate::memory::Memory;
+use crate::ops::{LogicOp, Op};
 use crate::sm;
 use crate::types::{Int, Result};
 
@@ -186,13 +186,7 @@ impl<'a> Compiler<'a> {
     }
 
     // compile 'and' or 'or' operation
-    fn and_or(
-        &mut self,
-        lhs: Operand,
-        rhs: Operand,
-        is_and: bool,
-        ops: &mut Assembler,
-    ) {
+    fn and_or(&mut self, lhs: Operand, rhs: Operand, is_and: bool, ops: &mut Assembler) {
         match (lhs, rhs) {
             (Operand::Register(lhs), Operand::Register(rhs)) => {
                 let (l, r) = (lhs as u8, rhs as u8);
@@ -536,6 +530,6 @@ impl<'a> Compiler<'a> {
             .finalize()
             .expect("finalize() shouldn't fail if commit() have not failed");
 
-        Ok(unsafe { Program::from_parts(memory,  entrypoint, self.globals, self.runtime) })
+        Ok(unsafe { Program::from_parts(memory, entrypoint, self.globals, self.runtime) })
     }
 }

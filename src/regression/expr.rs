@@ -2,18 +2,18 @@
 
 type Int = crate::types::Int;
 type Expr = crate::statement::Expr;
-type Context<'a> =  &'a [(&'static str, Int)];
+type Context<'a> = &'a [(&'static str, Int)];
 
 fn parse(input: &str) -> Expr {
     Expr::parse(input).unwrap()
 }
 
 fn eval(expr: Expr, globals: &Context) -> Int {
-    use crate::memory::ScopedMemory;
     use crate::io::{EmptyInput, IgnoreOutput};
+    use crate::memory::ScopedMemory;
     use crate::sm;
-    use crate::syntax::Statement;
     use crate::statement;
+    use crate::syntax::Statement;
     use crate::types::Var;
 
     let new_memory = || {
@@ -23,20 +23,22 @@ fn eval(expr: Expr, globals: &Context) -> Int {
 
     // first evaluate expression only
     let e = {
-        let (_, program) = statement::Program::from_main(vec![
-            Statement::Return(Some(expr.clone()))
-            ], globals.iter().map(|(name, _value)| name.to_string())).unwrap();
+        let (_, program) = statement::Program::from_main(
+            vec![Statement::Return(Some(expr.clone()))],
+            globals.iter().map(|(name, _value)| name.to_string()),
+        )
+        .unwrap();
 
-            let mut memory = new_memory();
-            for (name, value) in globals.iter() {
-                memory.store(&name.to_string(), *value);
-            }
+        let mut memory = new_memory();
+        for (name, value) in globals.iter() {
+            memory.store(&name.to_string(), *value);
+        }
 
-            let mut input = EmptyInput;
-            let mut output = IgnoreOutput;
-            let e = statement::run(&program, &mut memory, &mut input, &mut output).unwrap();
-            e.unwrap()
-        };
+        let mut input = EmptyInput;
+        let mut output = IgnoreOutput;
+        let e = statement::run(&program, &mut memory, &mut input, &mut output).unwrap();
+        e.unwrap()
+    };
 
     let result_var = Var::from("RESULT");
     // then with statements

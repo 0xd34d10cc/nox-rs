@@ -1,12 +1,11 @@
 use thiserror::Error;
 
-use crate::memory::{ScopedMemory, AllocationError};
-use crate::io::{InputStream, OutputStream};
-use crate::types::{Var, Int};
-use crate::syntax::Statement;
-use super::{Program, Function};
 use super::expr;
-
+use super::{Function, Program};
+use crate::io::{InputStream, OutputStream};
+use crate::memory::{AllocationError, ScopedMemory};
+use crate::syntax::Statement;
+use crate::types::{Int, Var};
 
 #[derive(Debug, Error)]
 pub enum ExecutionError {
@@ -59,10 +58,11 @@ where
 
     pub fn run(&mut self) -> ExecutionResult<Option<Int>> {
         for global in self.program.globals() {
-            match self.memory.globals_mut()
-                .allocate(global.clone()) {
-                Err(AllocationError::OutOfMemory) => return Err(AllocationError::OutOfMemory.into()),
-                Err(AllocationError::AlreadyAllocated{ .. }) | Ok(_) => { /* we're fine */ }
+            match self.memory.globals_mut().allocate(global.clone()) {
+                Err(AllocationError::OutOfMemory) => {
+                    return Err(AllocationError::OutOfMemory.into())
+                }
+                Err(AllocationError::AlreadyAllocated { .. }) | Ok(_) => { /* we're fine */ }
             }
         }
 
@@ -84,11 +84,7 @@ where
         target: &Function,
         args: &[Int],
     ) -> ExecutionResult<Option<Int>> {
-        let local_names = target
-            .args
-            .iter()
-            .chain(target.locals.iter())
-            .cloned();
+        let local_names = target.args.iter().chain(target.locals.iter()).cloned();
 
         self.memory.push_scope(local_names);
 

@@ -3,9 +3,8 @@ use std::mem;
 use capstone::prelude::*;
 use dynasmrt::{AssemblyOffset, ExecutableBuffer};
 
-use crate::memory::Memory;
 use super::runtime::Runtime;
-
+use crate::memory::Memory;
 
 pub struct Program<'a> {
     program: ExecutableBuffer,

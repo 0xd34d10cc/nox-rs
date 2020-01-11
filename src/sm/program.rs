@@ -59,7 +59,7 @@ impl Program {
         }
     }
 
-    pub fn globals(&self) -> impl Iterator<Item=&Var> {
+    pub fn globals(&self) -> impl Iterator<Item = &Var> {
         self.globals.iter()
     }
 }

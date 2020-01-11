@@ -10,8 +10,8 @@ mod deep_expressions;
 #[cfg(feature = "generated")]
 mod generated;
 
-use crate::memory::ScopedMemory;
 use crate::io::{InputStream, OutputStream};
+use crate::memory::ScopedMemory;
 // use crate::jit::{self, Runtime};
 use crate::sm;
 use crate::statement;

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use thiserror::Error;
 use slab::Slab;
+use thiserror::Error;
 
 use crate::types::{Int, Var};
 
@@ -14,10 +14,7 @@ pub enum AllocationError {
     OutOfMemory,
 
     #[error("Variable {name} is already allocated at {location}")]
-    AlreadyAllocated {
-        name: Var,
-        location: Key,
-    },
+    AlreadyAllocated { name: Var, location: Key },
 }
 
 type Result<T> = std::result::Result<T, AllocationError>;
@@ -43,7 +40,7 @@ impl Memory {
     }
 
     #[cfg(test)]
-    pub fn with_globals(globals: impl Iterator<Item=Var>) -> Self {
+    pub fn with_globals(globals: impl Iterator<Item = Var>) -> Self {
         let mut memory = Slab::with_capacity(SIZE);
         let mut index = AllocationIndex::new();
 
@@ -60,12 +57,14 @@ impl Memory {
     }
 
     pub fn load(&self, name: &Var) -> Option<Int> {
-        self.index.get(name)
-            .and_then(|&key| self.direct_load(key))
+        self.index.get(name).and_then(|&key| self.direct_load(key))
     }
 
     pub fn store(&mut self, name: &Var, value: Int) {
-        let key = self.index.get(name).copied()
+        let key = self
+            .index
+            .get(name)
+            .copied()
             .expect("Attempt to store to undefined variable");
 
         self.direct_store(key, value);
@@ -94,7 +93,6 @@ impl Memory {
         let key = self.index.get(name).copied()?;
         let location = self.memory.get_mut(key)?;
         Some(location as *mut Int)
-
     }
 
     pub fn clear(&mut self) {
@@ -107,8 +105,7 @@ impl Memory {
     }
 
     fn direct_store(&mut self, key: Key, value: Int) {
-        let location = self.memory.get_mut(key)
-            .expect("Invalid varaible location");
+        let location = self.memory.get_mut(key).expect("Invalid varaible location");
 
         *location = value;
     }
@@ -130,7 +127,7 @@ impl Memory {
 #[derive(Debug)]
 pub struct ScopedMemory {
     globals: Memory,
-    locals: Vec<AllocationIndex>
+    locals: Vec<AllocationIndex>,
 }
 
 impl ScopedMemory {
@@ -142,7 +139,7 @@ impl ScopedMemory {
     }
 
     #[cfg(test)]
-    pub fn with_globals(globals: impl Iterator<Item=Var>) -> Self {
+    pub fn with_globals(globals: impl Iterator<Item = Var>) -> Self {
         ScopedMemory {
             globals: Memory::with_globals(globals),
             locals: Vec::new(),
@@ -152,18 +149,18 @@ impl ScopedMemory {
     pub fn load(&self, name: &Var) -> Option<Int> {
         match self.local_index(name) {
             Some(key) => self.globals.direct_load(key),
-            None => self.globals.load(name)
+            None => self.globals.load(name),
         }
     }
 
     pub fn store(&mut self, name: &Var, value: Int) {
         match self.local_index(name) {
             Some(key) => self.globals.direct_store(key, value),
-            None => self.globals.store(name, value)
+            None => self.globals.store(name, value),
         }
     }
 
-    pub fn push_scope(&mut self, locals: impl Iterator<Item=Var>) {
+    pub fn push_scope(&mut self, locals: impl Iterator<Item = Var>) {
         let mut index = AllocationIndex::new();
         for name in locals {
             let key = self.globals.allocate_direct().unwrap();
@@ -191,6 +188,8 @@ impl ScopedMemory {
     }
 
     fn local_index(&self, name: &Var) -> Option<Key> {
-        self.locals.last().and_then(|index| index.get(name).copied())
+        self.locals
+            .last()
+            .and_then(|index| index.get(name).copied())
     }
 }

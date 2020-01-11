@@ -80,9 +80,10 @@ impl Interpreter {
                     }
                 }
 
-                let result = statement::run(&p, &mut self.memory, &mut self.input, &mut self.output)
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-                    .map_err(|e| CommandError::Runtime(e))?;
+                let result =
+                    statement::run(&p, &mut self.memory, &mut self.input, &mut self.output)
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+                        .map_err(|e| CommandError::Runtime(e))?;
 
                 if let Some(val) = result {
                     println!("Return code: {}", val);

@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use super::program::{Warning, Error, Result};
 use super::expr::Expr;
+use super::program::{Error, Result, Warning};
 use crate::syntax::{self, Statement};
 use crate::types::Var;
-
 
 struct VariableState {
     initialized: bool,
@@ -43,9 +42,11 @@ struct Symbols {
 }
 
 impl Symbols {
-    pub fn new(globals: impl Iterator<Item=Var>) -> Self {
+    pub fn new(globals: impl Iterator<Item = Var>) -> Self {
         Symbols {
-            globals: globals.map(|name| (name, VariableState::initialized())).collect(),
+            globals: globals
+                .map(|name| (name, VariableState::initialized()))
+                .collect(),
             locals: Vec::new(),
         }
     }
@@ -117,7 +118,10 @@ pub struct InitPass<'a> {
 }
 
 impl InitPass<'_> {
-    pub fn new<'a>(program: &'a syntax::Program, globals: impl Iterator<Item=Var>) -> InitPass<'a> {
+    pub fn new<'a>(
+        program: &'a syntax::Program,
+        globals: impl Iterator<Item = Var>,
+    ) -> InitPass<'a> {
         InitPass {
             program,
             symbols: Symbols::new(globals),
@@ -127,7 +131,7 @@ impl InitPass<'_> {
     }
 
     pub fn run(
-        mut self
+        mut self,
     ) -> Result<(
         Vec<Warning>,
         HashMap<Var, bool /* should return value? */>,

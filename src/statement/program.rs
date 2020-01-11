@@ -2,10 +2,10 @@ use std::collections::HashSet;
 
 use thiserror::Error;
 
-use crate::types::Var;
-use crate::syntax::{self, Statement};
-use super::init_pass::InitPass;
 use super::control_flow_pass::ControlFlowPass;
+use super::init_pass::InitPass;
+use crate::syntax::{self, Statement};
+use crate::types::Var;
 
 // TODO: move to separate file
 #[derive(Debug, Error)]
@@ -47,7 +47,6 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-
 pub struct Function {
     pub name: Var,
     pub returns_value: bool,
@@ -71,7 +70,10 @@ impl Program {
         Self::with_globals(program, std::iter::empty())
     }
 
-    pub fn with_globals(program: syntax::Program, globals: impl Iterator<Item=Var>) -> Result<(Vec<Warning>, Self)> {
+    pub fn with_globals(
+        program: syntax::Program,
+        globals: impl Iterator<Item = Var>,
+    ) -> Result<(Vec<Warning>, Self)> {
         let (warnings, functions, globals) = InitPass::new(&program, globals).run()?;
         let (warnings, fns) = ControlFlowPass::new(&program, functions, warnings).run()?;
 
@@ -97,7 +99,10 @@ impl Program {
     }
 
     #[cfg(test)]
-    pub fn from_main(main: Vec<Statement>, globals: impl Iterator<Item=Var>) -> Result<(Vec<Warning>, Self)> {
+    pub fn from_main(
+        main: Vec<Statement>,
+        globals: impl Iterator<Item = Var>,
+    ) -> Result<(Vec<Warning>, Self)> {
         let program = syntax::Program::from_main(main);
         Self::with_globals(program, globals)
     }
@@ -118,7 +123,7 @@ impl Program {
         self.functions.iter().filter(move |f| f.name != entry)
     }
 
-    pub fn globals(&self) -> impl Iterator<Item=&Var> {
+    pub fn globals(&self) -> impl Iterator<Item = &Var> {
         self.globals.iter()
     }
 }

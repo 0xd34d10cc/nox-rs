@@ -1,7 +1,7 @@
 use std::io;
 
-use crate::types::Int;
 use crate::io::{InputStream, OutputStream};
+use crate::types::Int;
 
 pub struct Runtime {
     input: Box<dyn InputStream>,
