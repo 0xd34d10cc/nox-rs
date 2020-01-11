@@ -1,26 +1,23 @@
-use snafu::{Snafu, ResultExt};
+use thiserror::Error;
 
 use crate::context::{InputStream, OutputStream};
 use crate::ops::{self, LogicOp, Op};
 use crate::typecheck::{ExecutionContext, ExecutionError};
 use crate::types::{Int, Var};
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Operation error: {}", source))]
-    OperationError { source: ops::Error },
+    #[error("Operation error: {0}",)]
+    OperationError(#[from] ops::Error),
 
-    #[snafu(display("Variable '{}' is not defined", name))]
-    UndefinedVar { name: Var },
+    #[error("Variable '{0}' is not defined")]
+    UndefinedVar(Var),
 
-    #[snafu(display("Call to procedure {} inside expression", name))]
-    CallToProcedure { name: Var },
+    #[error("Call to procedure {0} inside expression")]
+    CallToProcedure(Var),
 
-    #[snafu(display("Execution failure: {}", source))]
-    Execution {
-        #[snafu(source(from(ExecutionError, Box::new)))]
-        source: Box<ExecutionError>
-    }
+    #[error("Execution failure: {0}")]
+    Execution(#[from] Box<ExecutionError>)
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -50,15 +47,14 @@ impl Expr {
                 let val = context
                     .memory()
                     .load(name)
-                    .ok_or_else(|| Error::UndefinedVar { name: name.clone() })?;
+                    .ok_or_else(|| Error::UndefinedVar(name.clone()))?;
                 Ok(val)
             }
             Expr::Const(v) => Ok(*v),
             Expr::Op(op, lhs, rhs) => {
                 let left = lhs.eval(context)?;
                 let right = rhs.eval(context)?;
-                let v = op.apply(left, right)
-                    .context(OperationError { })?;
+                let v = op.apply(left, right)?;
 
                 Ok(v)
             }
@@ -75,9 +71,8 @@ impl Expr {
                     .collect::<Result<_>>()?;
 
                 let retval = context
-                    .call(name, &args)
-                    .context(Execution{})?
-                    .ok_or_else(|| Error::CallToProcedure { name: name.clone() })?;
+                    .call(name, &args).map_err(Box::new)?
+                    .ok_or_else(|| Error::CallToProcedure(name.clone()))?;
 
                 Ok(retval)
             }
