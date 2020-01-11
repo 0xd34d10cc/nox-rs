@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
-use snafu::Snafu;
+use snafu::{Snafu, ResultExt};
 
+use crate::expr;
 use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
-use crate::statement::{self, Function, Statement};
-use crate::types::{self, Int, Var};
+use crate::statement::{self, Statement};
+use crate::types::{Int, Var};
 
 #[derive(Debug, Snafu)]
 pub enum Warning {
@@ -51,20 +52,80 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+pub struct Function {
+    pub name: Var,
+    pub returns_value: bool,
+    pub locals: Vec<Var>,
+    pub args: Vec<Var>,
+    pub body: Vec<Statement>,
+}
+
 pub struct Program {
-    program: statement::Program,
+    functions: Vec<Function>,
+
+    /// name of 'main' function
+    entry: Var,
 
     #[allow(unused)]
-    functions: HashSet<Var>, /* names of functions which return value on all paths */
+    globals: HashSet<Var>,
 }
 
 impl Program {
-    pub fn entry(&self) -> &Function {
-        self.program.entry().unwrap() // typechecked
+    #[cfg(test)]
+    pub fn empty() -> Self {
+        Program {
+            functions: Vec::new(),
+            entry: "".into(),
+            globals: HashSet::new(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn compile(program: crate::nom::Input) -> std::result::Result<Self, Box<dyn std::error::Error>> {
+        statement::Program::parse(program)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            .and_then(|program| {
+                let (_warnings, program) = Program::check(program)?;
+                Ok(program)
+            })
+    }
+
+    pub fn check(program: statement::Program) -> Result<(Vec<Warning>, Self)> {
+        let (warnings, functions, globals) = InitChecker::new(&program).check()?;
+        let (warnings, fns) = ControlFlowChecker::new(&program, functions, warnings).check()?;
+
+        let mut functions = Vec::new();
+        for f in program.functions {
+            let returns_value = fns.contains(&f.name);
+            functions.push(Function {
+                name: f.name,
+                returns_value,
+                args: f.args,
+                locals: f.locals,
+                body: f.body,
+            });
+        }
+
+        let program = Program {
+            functions,
+            entry: program.entry,
+            globals,
+        };
+
+        Ok((warnings, program))
+    }
+
+    pub fn get(&self, function: &Var) -> Option<&Function> {
+        self.functions.iter().find(|f| &f.name == function)
+    }
+
+    pub fn entry(&self) -> Option<&Function> {
+        self.get(&self.entry)
     }
 
     pub fn functions(&self) -> impl Iterator<Item = &Function> {
-        self.program.functions()
+        let entry = self.entry.clone();
+        self.functions.iter().filter(move |f| f.name != entry)
     }
 
     pub fn run<I, O>(
@@ -72,22 +133,14 @@ impl Program {
         memory: &mut Memory,
         input: &mut I,
         output: &mut O,
-    ) -> types::Result<Option<Int>>
+    ) -> ExecutionResult<Option<Int>>
     where
         I: InputStream,
         O: OutputStream,
     {
-        self.program.run(memory, input, output)
+        ExecutionContext::new(self, memory, input, output).call(&self.entry, &[])
     }
-}
 
-pub fn check(program: statement::Program) -> Result<(Vec<Warning>, Program)> {
-    let (warnings, functions) = InitChecker::new(&program).check()?;
-    let (warnings, functions) = ControlFlowChecker::new(&program, functions, warnings).check()?;
-
-    let program = Program { program, functions };
-
-    Ok((warnings, program))
 }
 
 struct VariableState {
@@ -210,7 +263,7 @@ impl InitChecker<'_> {
         }
     }
 
-    pub fn check(&mut self) -> Result<(Vec<Warning>, HashMap<Var, bool /* should value? */>)> {
+    pub fn check(&mut self) -> Result<(Vec<Warning>, HashMap<Var, bool /* should return value? */>, HashSet<Var> /* globals */)> {
         let entry = self.program.entry().ok_or(Error::NoEntryFunction)?;
         self.check_function(entry)?;
 
@@ -233,10 +286,11 @@ impl InitChecker<'_> {
 
         let functions = std::mem::replace(&mut self.checked_functions, HashMap::new());
         let warnings = std::mem::replace(&mut self.warnings, Vec::new());
-        Ok((warnings, functions))
+        let globals = self.symbols.globals.drain().map(|(name, _state)| name).collect();
+        Ok((warnings, functions, globals))
     }
 
-    fn check_function(&mut self, function: &Function) -> Result<()> {
+    fn check_function(&mut self, function: &statement::Function) -> Result<()> {
         if self.checked_functions.contains_key(&function.name) {
             // TODO: add check for duplicate function (with same name)
             return Ok(());
@@ -396,7 +450,7 @@ impl ControlFlowChecker<'_> {
         Ok((warnings, functions))
     }
 
-    fn check_function(&mut self, f: &Function) -> Result<()> {
+    fn check_function(&mut self, f: &statement::Function) -> Result<()> {
         let should_return = self.functions.get(&f.name).copied().unwrap();
         let actually_returns = self.always_returns(&f.body);
 
@@ -479,5 +533,163 @@ impl ControlFlowChecker<'_> {
         }
 
         Ok(())
+    }
+}
+
+
+#[derive(Debug, Snafu)]
+pub enum ExecutionError {
+    #[snafu(display("Failed to evaluate expression: {}", source))]
+    ExpressionError { source: expr::Error },
+
+    #[snafu(display("Unexpected end of input while reading {}", name))]
+    UnexpectedEndOfInput { name: Var },
+}
+
+pub type ExecutionResult<T> = std::result::Result<T, ExecutionError>;
+
+enum Retcode {
+    Finished,
+    Return(Option<Int>),
+}
+
+pub struct ExecutionContext<'a, I, O> {
+    program: &'a Program,
+    memory: &'a mut Memory,
+    input: &'a mut I,
+    output: &'a mut O,
+}
+
+impl<I, O> ExecutionContext<'_, I, O>
+where
+    I: InputStream,
+    O: OutputStream,
+{
+    pub fn new<'a>(
+        program: &'a Program,
+        memory: &'a mut Memory,
+        input: &'a mut I,
+        output: &'a mut O,
+    ) -> ExecutionContext<'a, I, O> {
+        ExecutionContext {
+            program,
+            memory,
+            input,
+            output,
+        }
+    }
+
+    pub fn memory(&self) -> &Memory {
+        &self.memory
+    }
+
+    pub fn call(&mut self, function: &Var, args: &[Int]) -> ExecutionResult<Option<Int>> {
+        let target = self
+            .program
+            .get(function)
+            .expect("Call to unknown function");
+
+        debug_assert_eq!(args.len(), target.args.len());
+        self.execute_function(&target, args)
+    }
+
+    fn execute_function(&mut self, target: &Function, args: &[Int]) -> ExecutionResult<Option<Int>> {
+        let local_names = target
+            .args
+            .iter()
+            .chain(target.locals.iter())
+            .cloned()
+            .collect();
+        self.memory.push_scope(local_names);
+
+        for (name, value) in target.args.iter().zip(args.iter()) {
+            self.memory.store(name, *value);
+        }
+
+        let e = match self.execute_all(&target.body)? {
+            Retcode::Finished => None,
+            Retcode::Return(e) => e,
+        };
+        self.memory.pop_scope();
+        Ok(e)
+    }
+
+    fn execute_all(&mut self, statements: &[Statement]) -> ExecutionResult<Retcode> {
+        for statement in statements {
+            if let Retcode::Return(e) = self.execute(statement)? {
+                return Ok(Retcode::Return(e));
+            }
+        }
+
+        Ok(Retcode::Finished)
+    }
+
+    fn execute(&mut self, statement: &Statement) -> ExecutionResult<Retcode> {
+        match statement {
+            Statement::Skip => { /* do nothing */ }
+            Statement::IfElse {
+                condition,
+                if_true,
+                if_false,
+            } => {
+                let c = condition.eval(self).context(ExpressionError{})?;
+                if c != 0 {
+                    return self.execute_all(if_true);
+                } else {
+                    return self.execute_all(if_false);
+                };
+            }
+            Statement::While { condition, body } => {
+                while condition.eval(self).context(ExpressionError{})? != 0 {
+                    if let Retcode::Return(e) = self.execute_all(body)? {
+                        return Ok(Retcode::Return(e));
+                    }
+                }
+            }
+            Statement::DoWhile { body, condition } => loop {
+                if let Retcode::Return(e) = self.execute_all(body)? {
+                    return Ok(Retcode::Return(e));
+                }
+
+                if condition.eval(self).context(ExpressionError{})? == 0 {
+                    break;
+                }
+            },
+            Statement::Assign(name, value) => {
+                let value = value.eval(self).context(ExpressionError{})?;
+                self.memory.store(name, value);
+            }
+            Statement::Read(name) => {
+                let value = self
+                    .input
+                    .read()
+                    .ok_or_else(|| ExecutionError::UnexpectedEndOfInput { name: name.clone() })?;
+                self.memory.store(name, value);
+            }
+            Statement::Write(expr) => {
+                let value = expr.eval(self).context(ExpressionError{})?;
+                self.output.write(value);
+            }
+            Statement::Call { name, args } => {
+                let args: Vec<_> = args
+                    .iter()
+                    .map(|arg| arg.eval(self))
+                    .collect::<expr::Result<_>>()
+                    .context(ExpressionError {})?;
+
+                self.call(name, &args)?;
+            }
+            Statement::Return(e) => {
+                let retval = if let Some(e) = e {
+                    Some(e.eval(self).context(ExpressionError{})?)
+                } else {
+                    None
+                };
+
+                return Ok(Retcode::Return(retval));
+            }
+        };
+
+        Ok(Retcode::Finished)
     }
 }

@@ -1,18 +1,29 @@
-use snafu::Snafu;
+use snafu::{Snafu, ResultExt};
 
 use crate::context::{InputStream, OutputStream};
-use crate::ops::{LogicOp, Op};
-use crate::statement::ExecutionContext;
-use crate::types::{Int, Result, Var};
+use crate::ops::{self, LogicOp, Op};
+use crate::typecheck::{ExecutionContext, ExecutionError};
+use crate::types::{Int, Var};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
+    #[snafu(display("Operation error: {}", source))]
+    OperationError { source: ops::Error },
+
     #[snafu(display("Variable '{}' is not defined", name))]
     UndefinedVar { name: Var },
 
     #[snafu(display("Call to procedure {} inside expression", name))]
     CallToProcedure { name: Var },
+
+    #[snafu(display("Execution failure: {}", source))]
+    Execution {
+        #[snafu(source(from(ExecutionError, Box::new)))]
+        source: Box<ExecutionError>
+    }
 }
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -46,7 +57,9 @@ impl Expr {
             Expr::Op(op, lhs, rhs) => {
                 let left = lhs.eval(context)?;
                 let right = rhs.eval(context)?;
-                let v = op.apply(left, right)?;
+                let v = op.apply(left, right)
+                    .context(OperationError { })?;
+
                 Ok(v)
             }
             Expr::LogicOp(op, lhs, rhs) => {
@@ -62,7 +75,8 @@ impl Expr {
                     .collect::<Result<_>>()?;
 
                 let retval = context
-                    .call(name, &args)?
+                    .call(name, &args)
+                    .context(Execution{})?
                     .ok_or_else(|| Error::CallToProcedure { name: name.clone() })?;
 
                 Ok(retval)

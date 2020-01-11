@@ -1,6 +1,5 @@
-use crate::context::{InputStream, Memory, OutputStream};
 use crate::expr::Expr;
-use crate::types::{Int, Result, Var};
+use crate::types::Var;
 
 // abstract statement
 #[derive(Debug, Clone)]
@@ -58,16 +57,6 @@ impl Program {
     }
 
     #[cfg(test)]
-    pub fn compile(input: crate::nom::Input) -> Result<crate::typecheck::Program> {
-        Program::parse(input)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-            .and_then(|program| {
-                let (_warnings, program) = crate::typecheck::check(program)?;
-                Ok(program)
-            })
-    }
-
-    #[cfg(test)]
     pub fn parse(input: crate::nom::Input) -> crate::nom::Result<Program> {
         crate::nom::parse("program", parse::program, input)
     }
@@ -76,180 +65,8 @@ impl Program {
         self.get(&self.entry)
     }
 
-    pub fn functions(&self) -> impl Iterator<Item = &Function> {
-        let entry = self.entry.clone();
-        self.functions.iter().filter(move |f| f.name != entry)
-    }
-
     pub fn get(&self, function: &Var) -> Option<&Function> {
         self.functions.iter().find(|f| &f.name == function)
-    }
-
-    pub fn run<I, O>(
-        &self,
-        memory: &mut Memory,
-        input: &mut I,
-        output: &mut O,
-    ) -> Result<Option<Int>>
-    where
-        I: InputStream,
-        O: OutputStream,
-    {
-        ExecutionContext::new(self, memory, input, output).call(&self.entry, &[])
-    }
-}
-
-enum Retcode {
-    Finished,
-    Return(Option<Int>),
-}
-
-pub struct ExecutionContext<'a, I, O> {
-    program: &'a Program,
-    memory: &'a mut Memory,
-    input: &'a mut I,
-    output: &'a mut O,
-}
-
-impl<I, O> ExecutionContext<'_, I, O>
-where
-    I: InputStream,
-    O: OutputStream,
-{
-    pub fn new<'a>(
-        program: &'a Program,
-        memory: &'a mut Memory,
-        input: &'a mut I,
-        output: &'a mut O,
-    ) -> ExecutionContext<'a, I, O> {
-        ExecutionContext {
-            program,
-            memory,
-            input,
-            output,
-        }
-    }
-
-    pub fn memory(&self) -> &Memory {
-        &self.memory
-    }
-
-    pub fn call(&mut self, function: &Var, args: &[Int]) -> Result<Option<Int>> {
-        let target = self
-            .program
-            .get(function)
-            .ok_or_else(|| format!("Call to unknown function: {}", function))?;
-
-        if args.len() != target.args.len() {
-            return Err(format!(
-                "Invalid number of arguments in call to {}: expected {} found {}",
-                function,
-                target.args.len(),
-                args.len()
-            )
-            .into());
-        }
-
-        self.execute_function(&target, args)
-    }
-
-    fn execute_function(&mut self, target: &Function, args: &[Int]) -> Result<Option<Int>> {
-        let local_names = target
-            .args
-            .iter()
-            .chain(target.locals.iter())
-            .cloned()
-            .collect();
-        self.memory.push_scope(local_names);
-
-        for (name, value) in target.args.iter().zip(args.iter()) {
-            self.memory.store(name, *value);
-        }
-
-        let e = match self.execute_all(&target.body)? {
-            Retcode::Finished => None,
-            Retcode::Return(e) => e,
-        };
-        self.memory.pop_scope();
-        Ok(e)
-    }
-
-    fn execute_all(&mut self, statements: &[Statement]) -> Result<Retcode> {
-        for statement in statements {
-            if let Retcode::Return(e) = self.execute(statement)? {
-                return Ok(Retcode::Return(e));
-            }
-        }
-
-        Ok(Retcode::Finished)
-    }
-
-    fn execute(&mut self, statement: &Statement) -> Result<Retcode> {
-        match statement {
-            Statement::Skip => { /* do nothing */ }
-            Statement::IfElse {
-                condition,
-                if_true,
-                if_false,
-            } => {
-                let c = condition.eval(self)?;
-                if c != 0 {
-                    return self.execute_all(if_true);
-                } else {
-                    return self.execute_all(if_false);
-                };
-            }
-            Statement::While { condition, body } => {
-                while condition.eval(self)? != 0 {
-                    if let Retcode::Return(e) = self.execute_all(body)? {
-                        return Ok(Retcode::Return(e));
-                    }
-                }
-            }
-            Statement::DoWhile { body, condition } => loop {
-                if let Retcode::Return(e) = self.execute_all(body)? {
-                    return Ok(Retcode::Return(e));
-                }
-
-                if condition.eval(self)? == 0 {
-                    break;
-                }
-            },
-            Statement::Assign(name, value) => {
-                let value = value.eval(self)?;
-                self.memory.store(name, value);
-            }
-            Statement::Read(name) => {
-                let value = self
-                    .input
-                    .read()
-                    .ok_or_else(|| format!("Failed to read {}: no input", name))?;
-                self.memory.store(name, value);
-            }
-            Statement::Write(expr) => {
-                let value = expr.eval(self)?;
-                self.output.write(value);
-            }
-            Statement::Call { name, args } => {
-                let args: Vec<_> = args
-                    .iter()
-                    .map(|arg| arg.eval(self))
-                    .collect::<Result<_>>()?;
-
-                self.call(name, &args)?;
-            }
-            Statement::Return(e) => {
-                let retval = if let Some(e) = e {
-                    Some(e.eval(self)?)
-                } else {
-                    None
-                };
-
-                return Ok(Retcode::Return(retval));
-            }
-        };
-
-        Ok(Retcode::Finished)
     }
 }
 

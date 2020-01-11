@@ -3,7 +3,7 @@ use snafu::Snafu;
 use crate::types::Int;
 
 #[derive(Debug, Snafu)]
-enum Error {
+pub enum Error {
     #[snafu(display("Attempt to divide by 0"))]
     DivisionByZero,
 
@@ -21,21 +21,21 @@ pub enum Op {
 }
 
 impl Op {
-    pub fn apply(self, lhs: Int, rhs: Int) -> Result<Int, &'static str> {
+    pub fn apply(self, lhs: Int, rhs: Int) -> Result<Int, Error> {
         let n = match self {
             Op::Add => lhs.wrapping_add(rhs),
             Op::Sub => lhs.wrapping_sub(rhs),
             Op::Mul => lhs.wrapping_mul(rhs),
             Op::Div => {
                 if rhs == 0 {
-                    return Err("Attempt to divide by 0");
+                    return Err(Error::DivisionByZero);
                 }
 
                 lhs / rhs
             }
             Op::Mod => {
                 if rhs == 0 {
-                    return Err("Attempt to mod by 0");
+                    return Err(Error::ModZero);
                 }
 
                 lhs % rhs
