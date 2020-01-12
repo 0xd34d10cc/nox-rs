@@ -66,6 +66,7 @@ pub struct Program {
 
 impl Program {
     /// Create program from AST
+    #[cfg(test)]
     pub fn from(program: syntax::Program) -> Result<(Vec<Warning>, Self)> {
         Self::with_globals(program, std::iter::empty())
     }

@@ -13,8 +13,8 @@ pub enum AllocationError {
     #[error("Out of memory")]
     OutOfMemory,
 
-    #[error("Variable {name} is already allocated at {location}")]
-    AlreadyAllocated { name: Var, location: Key },
+    #[error("Variable is already allocated at {location}")]
+    AlreadyAllocated { location: Key },
 }
 
 type Result<T> = std::result::Result<T, AllocationError>;
@@ -56,6 +56,10 @@ impl Memory {
         }
     }
 
+    pub fn globals(&self) -> impl Iterator<Item = &Var> {
+        self.index.keys()
+    }
+
     pub fn load(&self, name: &Var) -> Option<Int> {
         self.index.get(name).and_then(|&key| self.direct_load(key))
     }
@@ -70,16 +74,13 @@ impl Memory {
         self.direct_store(key, value);
     }
 
-    pub fn allocate(&mut self, name: Var) -> Result<()> {
-        if let Some(key) = self.index.get(&name) {
-            return Err(AllocationError::AlreadyAllocated {
-                name,
-                location: *key,
-            });
+    pub fn allocate(&mut self, name: &Var) -> Result<()> {
+        if let Some(key) = self.index.get(name) {
+            return Err(AllocationError::AlreadyAllocated { location: *key });
         }
 
         let key = self.allocate_direct()?;
-        self.index.insert(name, key);
+        self.index.insert(name.clone(), key);
         Ok(())
     }
 
@@ -181,6 +182,10 @@ impl ScopedMemory {
     pub fn clear(&mut self) {
         self.globals.clear();
         self.locals.clear();
+    }
+
+    pub fn globals(&self) -> impl Iterator<Item = &Var> {
+        self.globals.globals()
     }
 
     pub fn globals_mut(&mut self) -> &mut Memory {
