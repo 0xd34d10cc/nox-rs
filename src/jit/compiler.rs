@@ -461,10 +461,10 @@ impl<'a> Compiler<'a> {
                     }
                 }
             }
-            _ => { /* ignore */ }
-            // sm::Instruction::Call(_) => todo!(),
-            // sm::Instruction::Begin { .. } => todo!(),
-            // sm::Instruction::End => todo!(),
+            sm::Instruction::Call(_) => todo!(),
+            sm::Instruction::Begin { .. } => todo!(),
+            sm::Instruction::End => todo!(),
+            sm::Instruction::Ignore => { /* this instruction invalidates Register::RAX */ }
         };
         Ok(())
     }
@@ -473,7 +473,7 @@ impl<'a> Compiler<'a> {
         // allocate globals
         use crate::memory::AllocationError;
         for global in program.globals() {
-            match self.globals.allocate(global.clone()) {
+            match self.globals.allocate(global) {
                 Err(AllocationError::OutOfMemory) => {
                     return Err(AllocationError::OutOfMemory.into())
                 }

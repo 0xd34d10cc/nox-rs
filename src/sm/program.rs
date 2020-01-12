@@ -23,13 +23,23 @@ pub enum Instruction {
     Call(Label),
     Begin { args: Vec<Var>, locals: Vec<Var> },
     End,
+    Ignore,
+}
+
+// TODO: use in JIT
+#[allow(unused)]
+pub struct Function {
+    pub(in crate::sm) args: Vec<Var>,
+    pub(in crate::sm) locals: Vec<Var>,
+    pub(in crate::sm) returns_value: bool,
+    pub(in crate::sm) entry: Label,
 }
 
 pub struct Program {
-    pub labels: Labels,
-    pub instructions: Vec<Instruction>,
-
-    pub(super) globals: HashSet<Var>,
+    pub(in crate::sm) labels: Labels,
+    pub(in crate::sm) instructions: Vec<Instruction>,
+    pub(in crate::sm) functions: HashMap<Var, Function>,
+    pub(in crate::sm) globals: HashSet<Var>,
 }
 
 impl Program {
@@ -37,6 +47,7 @@ impl Program {
         Program {
             labels: Labels::new(),
             instructions: Vec::new(),
+            functions: HashMap::new(),
             globals: HashSet::new(),
         }
     }

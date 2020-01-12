@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use super::program::{Instruction, Label, Program};
-use crate::statement::{self, Expr, Function};
+use super::program::{Function, Instruction, Label, Program};
+use crate::statement::{self, Expr};
 use crate::syntax::Statement;
 use crate::types::Var;
 
@@ -18,18 +18,18 @@ impl Compiler {
         }
     }
 
-    pub fn compile(&mut self, program: &statement::Program) -> crate::types::Result<Program> {
-        let mut instructions = Program::new();
-        let main = program.entry().ok_or("No entry function")?;
+    pub fn compile(&mut self, source: &statement::Program) -> crate::types::Result<Program> {
+        let mut target = Program::new();
+        let main = source.entry().ok_or("No entry function")?;
 
-        self.compile_function(main, &mut instructions);
+        self.compile_function(source, main, &mut target);
 
-        for function in program.functions() {
-            self.compile_function(function, &mut instructions);
+        for function in source.functions() {
+            self.compile_function(source, function, &mut target);
         }
 
-        instructions.globals = program.globals().cloned().collect();
-        Ok(instructions)
+        target.globals = source.globals().cloned().collect();
+        Ok(target)
     }
 
     fn gen_named_label(&mut self, name: &Var) -> Label {
@@ -70,7 +70,13 @@ impl Compiler {
         }
     }
 
-    fn compile_statements(&mut self, statements: &[Statement], program: &mut Program) {
+    fn compile_statements(
+        &mut self,
+        source: &statement::Program,
+        function_end_label: Label,
+        statements: &[Statement],
+        program: &mut Program,
+    ) {
         for statement in statements {
             match statement {
                 Statement::Skip => { /* do nothing, successfully */ }
@@ -89,13 +95,13 @@ impl Compiler {
 
                     self.compile_expr(condition, program);
                     program.push(Instruction::JumpIfZero(false_label));
-                    self.compile_statements(if_true, program);
+                    self.compile_statements(source, function_end_label, if_true, program);
 
                     if !if_false.is_empty() {
                         program.push(Instruction::Jump(end_label));
 
                         program.push(Instruction::Label(false_label));
-                        self.compile_statements(if_false, program);
+                        self.compile_statements(source, function_end_label, if_false, program);
                     }
 
                     program.push(Instruction::Label(end_label));
@@ -106,7 +112,7 @@ impl Compiler {
 
                     let body_label = self.gen_label();
                     program.push(Instruction::Label(body_label));
-                    self.compile_statements(body, program);
+                    self.compile_statements(source, function_end_label, body, program);
 
                     program.push(Instruction::Label(condition_label));
                     self.compile_expr(condition, program);
@@ -116,7 +122,7 @@ impl Compiler {
                     let body_label = self.gen_label();
                     program.push(Instruction::Label(body_label));
 
-                    self.compile_statements(body, program);
+                    self.compile_statements(source, function_end_label, body, program);
                     self.compile_expr(condition, program);
                     program.push(Instruction::JumpIfNotZero(body_label));
                 }
@@ -139,27 +145,51 @@ impl Compiler {
                         self.compile_expr(arg, program);
                     }
 
-                    program.push(Instruction::Call(target))
+                    program.push(Instruction::Call(target));
+
+                    if source
+                        .get(name)
+                        .expect("Call to unknown function")
+                        .returns_value
+                    {
+                        program.push(Instruction::Ignore);
+                    }
                 }
                 Statement::Return(e) => {
                     if let Some(e) = e {
                         self.compile_expr(e, program);
                     }
-                    program.push(Instruction::End);
+                    program.push(Instruction::Jump(function_end_label));
                 }
             }
         }
     }
 
-    fn compile_function(&mut self, function: &Function, program: &mut Program) {
-        let Function {
+    fn compile_function(
+        &mut self,
+        source: &statement::Program,
+        function: &statement::Function,
+        program: &mut Program,
+    ) {
+        let statement::Function {
             name,
-            returns_value: _,
+            returns_value,
             args,
             locals,
             body,
         } = function;
         let label = self.gen_named_label(name);
+        let end_label = self.gen_label();
+
+        program.functions.insert(
+            name.clone(),
+            Function {
+                args: args.clone(),
+                locals: locals.clone(),
+                returns_value: *returns_value,
+                entry: label,
+            },
+        );
 
         program.push(Instruction::Label(label));
         program.push(Instruction::Begin {
@@ -173,7 +203,9 @@ impl Compiler {
             program.push(Instruction::Store(arg.clone()));
         }
 
-        self.compile_statements(body, program);
+        self.compile_statements(source, end_label, body, program);
+
+        program.push(Instruction::Label(end_label));
         program.push(Instruction::End);
     }
 }

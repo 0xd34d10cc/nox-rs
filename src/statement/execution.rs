@@ -58,7 +58,7 @@ where
 
     pub fn run(&mut self) -> ExecutionResult<Option<Int>> {
         for global in self.program.globals() {
-            match self.memory.globals_mut().allocate(global.clone()) {
+            match self.memory.globals_mut().allocate(global) {
                 Err(AllocationError::OutOfMemory) => {
                     return Err(AllocationError::OutOfMemory.into())
                 }

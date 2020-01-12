@@ -121,6 +121,9 @@ where
                     None => return Ok(Retcode::Return),
                 }
             }
+            Instruction::Ignore => {
+                self.stack.pop().ok_or("Empty stack (ignore)")?;
+            }
         };
 
         Ok(Retcode::Continue)
@@ -130,7 +133,7 @@ where
         use crate::memory::AllocationError;
 
         for global in program.globals() {
-            match self.memory.globals_mut().allocate(global.clone()) {
+            match self.memory.globals_mut().allocate(global) {
                 Err(AllocationError::OutOfMemory) => {
                     return Err(AllocationError::OutOfMemory.into())
                 }

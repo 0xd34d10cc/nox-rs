@@ -9,23 +9,25 @@ use crate::jit::{self, Runtime};
 use crate::memory::ScopedMemory;
 use crate::sm;
 use crate::statement::{self, TypeError};
-use crate::syntax::Program;
+use crate::syntax;
 use crate::types::Var;
 
 #[derive(Debug)]
 pub enum Command {
+    Warnings(bool /* enable */),
+
     Delete(Var),
     ResetEnv,
     ShowEnv,
 
-    ShowStatements(Program),
-    RunStatements(Program),
+    ShowStatements(syntax::Program),
+    RunStatements(syntax::Program),
 
-    ShowSMInstructions(Program),
-    RunSMInstructions(Program),
+    ShowSMInstructions(syntax::Program),
+    RunSMInstructions(syntax::Program),
 
-    ShowJITAsm(Program),
-    RunJIT(Program),
+    ShowJITAsm(syntax::Program),
+    RunJIT(syntax::Program),
 }
 
 impl Command {
@@ -54,6 +56,7 @@ pub struct Interpreter {
     input: Stdin,
     output: Stdout,
     runtime: Box<Runtime>,
+    warnings_enabled: bool,
 }
 
 impl Interpreter {
@@ -63,23 +66,35 @@ impl Interpreter {
             input: io::stdin(),
             output: io::stdout(),
             runtime: Runtime::stdio(),
+            warnings_enabled: false,
         }
+    }
+
+    fn compile(&self, program: syntax::Program) -> Result<statement::Program, CommandError> {
+        let (warnings, p) =
+            statement::Program::with_globals(program, self.memory.globals().cloned())?;
+        if !warnings.is_empty() && self.warnings_enabled {
+            for warning in warnings {
+                println!("Warning: {}", warning);
+            }
+        }
+
+        Ok(p)
     }
 
     pub fn execute(&mut self, line: Command) -> Result<(), CommandError> {
         match line {
+            Command::Warnings(enable) => {
+                self.warnings_enabled = enable;
+                let enabled = if enable { "enabled" } else { "disabled" };
+                println!("Warnings {}", enabled);
+            }
             Command::Delete(var) => self.memory.globals_mut().deallocate(&var),
             Command::ResetEnv => self.memory.clear(),
             Command::ShowEnv => println!("{:?}", self.memory),
             Command::ShowStatements(p) => println!("{:#?}", p),
             Command::RunStatements(p) => {
-                let (warnings, p) = statement::Program::from(p)?;
-                if !warnings.is_empty() {
-                    for warning in warnings {
-                        println!("Warning: {}", warning);
-                    }
-                }
-
+                let p = self.compile(p)?;
                 let result =
                     statement::run(&p, &mut self.memory, &mut self.input, &mut self.output)
                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
@@ -90,38 +105,20 @@ impl Interpreter {
                 }
             }
             Command::ShowSMInstructions(p) => {
-                let (warnings, p) = statement::Program::from(p)?;
-                if !warnings.is_empty() {
-                    for warning in warnings {
-                        println!("Warning: {}", warning);
-                    }
-                }
-
+                let p = self.compile(p)?;
                 let p = sm::compile(&p).map_err(CommandError::Compilation)?;
                 for instruction in p.instructions() {
                     println!("{:?}", instruction)
                 }
             }
             Command::RunSMInstructions(p) => {
-                let (warnings, p) = statement::Program::from(p)?;
-                if !warnings.is_empty() {
-                    for warning in warnings {
-                        println!("Warning: {}", warning);
-                    }
-                }
-
+                let p = self.compile(p)?;
                 let p = sm::compile(&p).map_err(CommandError::Compilation)?;
                 sm::run(&p, &mut self.memory, &mut self.input, &mut self.output)
                     .map_err(CommandError::Runtime)?
             }
             Command::ShowJITAsm(p) => {
-                let (warnings, p) = statement::Program::from(p)?;
-                if !warnings.is_empty() {
-                    for warning in warnings {
-                        println!("Warning: {}", warning);
-                    }
-                }
-
+                let p = self.compile(p)?;
                 let p = sm::compile(&p).map_err(CommandError::Compilation)?;
                 let p = jit::compile(&p, &mut self.runtime, self.memory.globals_mut())
                     .map_err(CommandError::Compilation)?;
@@ -131,13 +128,7 @@ impl Interpreter {
                 }
             }
             Command::RunJIT(p) => {
-                let (warnings, p) = statement::Program::from(p)?;
-                if !warnings.is_empty() {
-                    for warning in warnings {
-                        println!("Warning: {}", warning);
-                    }
-                }
-
+                let p = self.compile(p)?;
                 let p = sm::compile(&p).map_err(CommandError::Compilation)?;
                 let p = jit::compile(&p, &mut self.runtime, self.memory.globals_mut())
                     .map_err(CommandError::Compilation)?;
@@ -218,6 +209,7 @@ mod parse {
 
     pub fn input_line(input: Input) -> Parsed<Command> {
         alt((
+            command(":w", map(flag, Command::Warnings)),
             command(":del", map(variable, Command::Delete)),
             command(":reset", map(spaces, |_| Command::ResetEnv)),
             command(":env", map(spaces, |_| Command::ShowEnv)),
@@ -229,6 +221,18 @@ mod parse {
             command(":sj", map(program, Command::ShowJITAsm)),
             map(program, Command::RunStatements),
         ))(input)
+    }
+
+    fn flag(input: Input) -> Parsed<bool> {
+        let (input, _) = spaces(input)?;
+        let (input, f) = alt((tag("+"), tag("-")))(input)?;
+        let f = match f {
+            "+" => true,
+            "-" => false,
+            _ => unreachable!(),
+        };
+
+        Ok((input, f))
     }
 
     fn command<'a, P>(prefix: &'a str, parser: P) -> impl Fn(Input<'a>) -> Parsed<Command>
