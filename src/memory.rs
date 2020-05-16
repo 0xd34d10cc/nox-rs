@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-
 use slab::Slab;
 use thiserror::Error;
 
 use crate::types::{Int, Var};
 
 type Key = usize;
-type AllocationIndex = HashMap<Var, Key>;
+type AllocationIndex = fnv::FnvHashMap<Var, Key>;
 
 #[derive(Debug, Error)]
 pub enum AllocationError {
@@ -35,14 +33,14 @@ impl Memory {
         Memory {
             memory: Slab::with_capacity(SIZE),
             size: SIZE,
-            index: AllocationIndex::new(),
+            index: AllocationIndex::default(),
         }
     }
 
     #[cfg(test)]
     pub fn with_globals(globals: impl Iterator<Item = Var>) -> Self {
         let mut memory = Slab::with_capacity(SIZE);
-        let mut index = AllocationIndex::new();
+        let mut index = AllocationIndex::default();
 
         for name in globals {
             let key = memory.insert(0);
@@ -166,7 +164,7 @@ impl ScopedMemory {
 
     pub fn push_scope(&mut self, locals: impl Iterator<Item = Var>) {
         if self.locals.len() == self.size {
-            self.locals.push(AllocationIndex::with_capacity(16));
+            self.locals.push(AllocationIndex::with_capacity_and_hasher(16, Default::default()));
         } else {
             let locals = &mut self.locals[self.size];
             for (_name, key) in locals.iter() {
