@@ -129,6 +129,7 @@ impl Memory {
 pub struct ScopedMemory {
     globals: Memory,
     locals: Vec<AllocationIndex>,
+    size: usize,
 }
 
 impl ScopedMemory {
@@ -136,6 +137,7 @@ impl ScopedMemory {
         ScopedMemory {
             globals: Memory::new(),
             locals: Vec::new(),
+            size: 0,
         }
     }
 
@@ -144,6 +146,7 @@ impl ScopedMemory {
         ScopedMemory {
             globals: Memory::with_globals(globals),
             locals: Vec::new(),
+            size: 0,
         }
     }
 
@@ -162,21 +165,28 @@ impl ScopedMemory {
     }
 
     pub fn push_scope(&mut self, locals: impl Iterator<Item = Var>) {
-        let mut index = AllocationIndex::new();
+        if self.locals.len() == self.size {
+            self.locals.push(AllocationIndex::with_capacity(16));
+        } else {
+            let locals = &mut self.locals[self.size];
+            for (_name, key) in locals.iter() {
+                self.globals.deallocate_direct(*key);
+            }
+
+            locals.clear();
+        }
+
+        let index = &mut self.locals[self.size];
         for name in locals {
             let key = self.globals.allocate_direct().unwrap();
             index.insert(name, key);
         }
 
-        self.locals.push(index);
+        self.size += 1;
     }
 
     pub fn pop_scope(&mut self) {
-        if let Some(locals) = self.locals.pop() {
-            for (_name, key) in locals {
-                self.globals.deallocate_direct(key);
-            }
-        }
+        self.size -= 1;
     }
 
     pub fn clear(&mut self) {
@@ -193,8 +203,7 @@ impl ScopedMemory {
     }
 
     fn local_index(&self, name: &Var) -> Option<Key> {
-        self.locals
-            .last()
+        self.locals.get(self.size.wrapping_sub(1))
             .and_then(|index| index.get(name).copied())
     }
 }
