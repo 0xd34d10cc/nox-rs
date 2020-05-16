@@ -18,7 +18,7 @@ fn eval(expr: Expr, globals: &Context) -> Int {
     use crate::types::Var;
 
     let new_memory = || {
-        let vars = globals.iter().map(|(name, _v)| name.to_string());
+        let vars = globals.iter().map(|(&name, _v)| Var::from(name));
         ScopedMemory::with_globals(vars)
     };
 

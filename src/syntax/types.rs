@@ -20,7 +20,8 @@ pub fn variable(input: Input) -> Parsed<Var> {
 fn identifier(input: Input) -> Parsed<Var> {
     let (input, first) = take_while1(|c: char| c.is_alphabetic() || c == '_')(input)?;
     let (input, second) = take_while(|c: char| c.is_alphanumeric() || c == '_')(input)?;
-    let name = Var::from(first) + second;
+    let name = [first, second].concat();
+    let name = Var::from(name.as_str());
     Ok((input, name))
 }
 

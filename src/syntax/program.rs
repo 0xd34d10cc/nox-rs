@@ -172,7 +172,7 @@ pub fn program(input: Input) -> Parsed<Program> {
     let (input, mut functions) = many0(function)(input)?;
     let (input, main) = statements1(input)?;
 
-    let entry: Var = "main".into();
+    let entry: Var = Var::from("main");
     functions.push(Function {
         name: entry.clone(),
         args: Vec::new(),

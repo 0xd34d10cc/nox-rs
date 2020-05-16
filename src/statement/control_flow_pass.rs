@@ -85,7 +85,7 @@ impl ControlFlowPass<'_> {
         return false;
     }
 
-    fn validate_returns(&self, name: &str, block: &[Statement], should_return: bool) -> Result<()> {
+    fn validate_returns(&self, name: &Var, block: &[Statement], should_return: bool) -> Result<()> {
         for statement in block {
             match statement {
                 Statement::IfElse {
@@ -97,9 +97,9 @@ impl ControlFlowPass<'_> {
                 Statement::Return(e) => {
                     if e.is_some() != should_return {
                         if should_return {
-                            return Err(Error::ReturnWithoutValue(Var::from(name)));
+                            return Err(Error::ReturnWithoutValue(name.clone()));
                         } else {
-                            return Err(Error::NotAllControlPathsReturn(Var::from(name)));
+                            return Err(Error::NotAllControlPathsReturn(name.clone()));
                         }
                     }
                 }
