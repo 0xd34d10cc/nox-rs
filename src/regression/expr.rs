@@ -18,7 +18,7 @@ fn eval(expr: Expr, globals: &Context) -> Int {
     use crate::types::Var;
 
     let new_memory = || {
-        let vars = globals.iter().map(|(&name, _v)| Var::from(name));
+        let vars = globals.iter().map(|(name, _v)| Var::from(*name));
         ScopedMemory::with_globals(vars)
     };
 
@@ -26,13 +26,13 @@ fn eval(expr: Expr, globals: &Context) -> Int {
     let e = {
         let (_, program) = statement::Program::from_main(
             vec![Statement::Return(Some(expr.clone()))],
-            globals.iter().map(|(name, _value)| name.to_string()),
+            globals.iter().map(|(name, _value)| Var::from(*name)),
         )
         .unwrap();
 
         let mut memory = new_memory();
         for (name, value) in globals.iter() {
-            memory.store(&name.to_string(), *value);
+            memory.store(&Var::from(*name), *value);
         }
 
         let mut input = EmptyInput;
@@ -46,7 +46,7 @@ fn eval(expr: Expr, globals: &Context) -> Int {
     let (s, program) = {
         let mut main = Vec::new();
         for (name, value) in globals.iter() {
-            let set_var = Statement::Assign(name.to_string(), Expr::Const(*value));
+            let set_var = Statement::Assign(Var::from(*name), Expr::Const(*value));
             main.push(set_var);
         }
         main.push(Statement::Assign(result_var.clone(), expr));
