@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::ops::{LogicOp, Op};
 use crate::types::{Int, Var};
 
 pub type Label = usize;
-pub type Labels = HashMap<Label, usize>; // Label -> instruction index
+pub type Labels = fnv::FnvHashMap<Label, usize>; // Label -> instruction index
+pub type Functions = fnv::FnvHashMap<Var, Function>;
+pub type Globals = fnv::FnvHashSet<Var>;
 
 // Stack machine instruction
 #[derive(Debug, Clone)]
@@ -38,17 +38,17 @@ pub struct Function {
 pub struct Program {
     pub(in crate::sm) labels: Labels,
     pub(in crate::sm) instructions: Vec<Instruction>,
-    pub(in crate::sm) functions: HashMap<Var, Function>,
-    pub(in crate::sm) globals: HashSet<Var>,
+    pub(in crate::sm) functions: Functions,
+    pub(in crate::sm) globals: Globals,
 }
 
 impl Program {
     pub fn new() -> Self {
         Program {
-            labels: Labels::new(),
+            labels: Labels::default(),
             instructions: Vec::new(),
-            functions: HashMap::new(),
-            globals: HashSet::new(),
+            functions: Functions::default(),
+            globals: Globals::default(),
         }
     }
 
