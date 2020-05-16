@@ -16,3 +16,6 @@ slab = "0.4.2"
 [features]
 generated = []
 deep-expressions = []
+
+[profile.release]
+debug = true
