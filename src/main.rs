@@ -1,5 +1,3 @@
-#![feature(proc_macro_hygiene)] // for dynasm
-
 #[cfg(test)]
 mod regression;
 

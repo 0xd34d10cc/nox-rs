@@ -5,12 +5,12 @@ authors = ["0xd34d10cc <0xd34d10cc@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-nom = "5.0.1"
-rustyline = "5.0.5"
-dynasm = "0.5.2"
-dynasmrt = "0.5.2"
-capstone = "0.6.0"
-thiserror = "1.0.9"
+nom = "5.1"
+rustyline = "6.2"
+dynasm = "1.0"
+dynasmrt = "1.0"
+capstone = "0.7.0"
+thiserror = "1.0"
 slab = "0.4.2"
 fnv = "1.0.7"
 
