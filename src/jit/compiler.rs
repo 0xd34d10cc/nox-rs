@@ -301,7 +301,7 @@ impl<'a> Compiler<'a> {
                 src.store_into(Register::RDX, ops);
                 dynasm!(ops
                     ; mov rcx, QWORD rt as _
-                    ; mov rax, QWORD Runtime::write as _
+                    ; mov rax, QWORD Runtime::write as usize as i64
                     ; call rax
                 )
             }
@@ -311,7 +311,7 @@ impl<'a> Compiler<'a> {
                 let rt = &mut *self.runtime as *mut Runtime;
                 dynasm!(ops
                     ; mov rcx, QWORD rt as _
-                    ; mov rax, QWORD Runtime::read as _
+                    ; mov rax, QWORD Runtime::read as usize as i64
                     ; call rax
                 );
                 dst.load_from(Register::RAX, ops);

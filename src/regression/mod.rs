@@ -84,7 +84,7 @@ pub fn run(program: &str, stdin: &[Int], stdout: &[Int], reads: usize) {
     let (i, o, _program) = {
         let program = sm::compile(&program).unwrap();
         let mut memory = ScopedMemory::new();
-        let mut input = inputs.clone();
+        let mut input = inputs;
         let mut output = Vec::new();
         sm::run(&program, &mut memory, &mut input, &mut output).unwrap();
         (input, output, program)

@@ -117,11 +117,14 @@ pub struct InitPass<'a> {
     warnings: Vec<Warning>,
 }
 
+type RunResult = Result<(
+    Vec<Warning>,
+    HashMap<Var, bool /* should return value? */>,
+    HashSet<Var>, /* globals */
+)>;
+
 impl InitPass<'_> {
-    pub fn new<'a>(
-        program: &'a syntax::Program,
-        globals: impl Iterator<Item = Var>,
-    ) -> InitPass<'a> {
+    pub fn new(program: &syntax::Program, globals: impl Iterator<Item = Var>) -> InitPass {
         InitPass {
             program,
             symbols: Symbols::new(globals),
@@ -130,13 +133,7 @@ impl InitPass<'_> {
         }
     }
 
-    pub fn run(
-        mut self,
-    ) -> Result<(
-        Vec<Warning>,
-        HashMap<Var, bool /* should return value? */>,
-        HashSet<Var>, /* globals */
-    )> {
+    pub fn run(mut self) -> RunResult {
         let entry = self.program.entry().ok_or(Error::NoEntryFunction)?;
         self.check_function(entry)?;
 

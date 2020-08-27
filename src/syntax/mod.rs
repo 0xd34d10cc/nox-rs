@@ -34,6 +34,8 @@ pub fn spaces(input: Input) -> Parsed<Input> {
     nom::character::complete::multispace0(input)
 }
 
+// see https://github.com/rust-lang/rust-clippy/issues/2944
+#[allow(clippy::needless_lifetimes)]
 pub fn key<'a>(key: &'a str) -> impl Fn(Input<'a>) -> Parsed<Input> {
     nom::sequence::preceded(spaces, nom::bytes::complete::tag(key))
 }

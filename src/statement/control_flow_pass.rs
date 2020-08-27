@@ -18,8 +18,8 @@ impl ControlFlowPass<'_> {
     ) -> ControlFlowPass<'a> {
         ControlFlowPass {
             program,
-            functions: functions,
-            warnings: warnings,
+            functions,
+            warnings,
         }
     }
 
@@ -82,7 +82,7 @@ impl ControlFlowPass<'_> {
             }
         }
 
-        return false;
+        false
     }
 
     fn validate_returns(&self, name: &Var, block: &[Statement], should_return: bool) -> Result<()> {
