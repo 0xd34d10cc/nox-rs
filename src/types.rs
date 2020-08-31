@@ -1,6 +1,6 @@
-use std::rc::Rc;
-use std::ops::Deref;
 use std::fmt;
+use std::ops::Deref;
+use std::rc::Rc;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub type Int = i64;
@@ -24,15 +24,6 @@ impl fmt::Display for Var {
 
 impl From<&str> for Var {
     fn from(name: &str) -> Var {
-        let name = String::from(name);
-        Var::from(name)
-    }
-}
-
-impl From<String> for Var {
-    fn from(name: String) -> Var {
-        let name = name.into_boxed_str();
-        let name = Rc::from(name);
-        Var(name)
+        Var(Rc::from(name))
     }
 }

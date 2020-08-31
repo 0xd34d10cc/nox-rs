@@ -164,7 +164,10 @@ impl ScopedMemory {
 
     pub fn push_scope(&mut self, locals: impl Iterator<Item = Var>) {
         if self.locals.len() == self.size {
-            self.locals.push(AllocationIndex::with_capacity_and_hasher(16, Default::default()));
+            self.locals.push(AllocationIndex::with_capacity_and_hasher(
+                16,
+                Default::default(),
+            ));
         } else {
             let locals = &mut self.locals[self.size];
             for (_name, key) in locals.iter() {
@@ -201,7 +204,8 @@ impl ScopedMemory {
     }
 
     fn local_index(&self, name: &Var) -> Option<Key> {
-        self.locals.get(self.size.wrapping_sub(1))
+        self.locals
+            .get(self.size.wrapping_sub(1))
             .and_then(|index| index.get(name).copied())
     }
 }
