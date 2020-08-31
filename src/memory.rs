@@ -1,9 +1,11 @@
+use std::collections::hash_map::Entry;
+
 use slab::Slab;
 use thiserror::Error;
 
 use crate::types::{Int, Var};
 
-type Key = usize;
+type Key = usize; // offset into |memory| at which the variable is located
 type AllocationIndex = fnv::FnvHashMap<Var, Key>;
 
 #[derive(Debug, Error)]
@@ -18,48 +20,88 @@ pub enum AllocationError {
 type Result<T> = std::result::Result<T, AllocationError>;
 
 #[derive(Debug, Clone)]
-pub struct Memory {
+struct MemoryBlock {
     memory: Slab<Int>,
     size: usize,
+}
 
-    // globals
+impl MemoryBlock {
+    fn with_capacity(size: usize) -> Self {
+        MemoryBlock {
+            memory: Slab::with_capacity(size),
+            size,
+        }
+    }
+
+    fn get_mut(&mut self, key: Key) -> Option<&mut Int> {
+        self.memory.get_mut(key)
+    }
+
+    fn clear(&mut self) {
+        self.memory.clear();
+    }
+
+    fn load(&self, key: Key) -> Option<Int> {
+        self.memory.get(key).copied()
+    }
+
+    fn store(&mut self, key: Key, value: Int) {
+        let location = self.memory.get_mut(key).expect("Invalid varaible location");
+
+        *location = value;
+    }
+
+    fn allocate(&mut self) -> Result<Key> {
+        if self.memory.len() >= self.size {
+            return Err(AllocationError::OutOfMemory);
+        }
+
+        Ok(self.memory.insert(0))
+    }
+
+    fn deallocate(&mut self, key: Key) {
+        debug_assert!(self.memory.contains(key));
+        self.memory.remove(key);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Memory {
+    block: MemoryBlock,
     index: AllocationIndex,
 }
 
-const SIZE: usize = 1024;
+const DEFAULT_MEMORY_SIZE: usize = 1024;
 
 impl Memory {
     pub fn new() -> Self {
+        Self::with_capacity(DEFAULT_MEMORY_SIZE)
+    }
+
+    pub fn with_capacity(size: usize) -> Self {
         Memory {
-            memory: Slab::with_capacity(SIZE),
-            size: SIZE,
+            block: MemoryBlock::with_capacity(size),
             index: AllocationIndex::default(),
         }
     }
 
     #[cfg(test)]
     pub fn with_globals(globals: impl Iterator<Item = Var>) -> Self {
-        let mut memory = Slab::with_capacity(SIZE);
-        let mut index = AllocationIndex::default();
+        let mut memory = Self::new();
 
         for name in globals {
-            let key = memory.insert(0);
-            index.insert(name, key);
+            memory.allocate(&name).expect("Too many test variables");
         }
 
-        Memory {
-            memory,
-            size: SIZE,
-            index,
-        }
+        memory
     }
 
-    pub fn globals(&self) -> impl Iterator<Item = &Var> {
+    pub fn iter(&self) -> impl Iterator<Item = &Var> {
         self.index.keys()
     }
 
     pub fn load(&self, name: &Var) -> Option<Int> {
-        self.index.get(name).and_then(|&key| self.direct_load(key))
+        self.index.get(name).and_then(|&key| self.block.load(key))
     }
 
     pub fn store(&mut self, name: &Var, value: Int) {
@@ -69,57 +111,39 @@ impl Memory {
             .copied()
             .expect("Attempt to store to undefined variable");
 
-        self.direct_store(key, value);
+        self.block.store(key, value);
     }
 
     pub fn allocate(&mut self, name: &Var) -> Result<()> {
-        if let Some(key) = self.index.get(name) {
-            return Err(AllocationError::AlreadyAllocated { location: *key });
+        match self.index.entry(name.clone()) {
+            Entry::Occupied(v) => Err(AllocationError::AlreadyAllocated { location: *v.get() }),
+            Entry::Vacant(v) => {
+                let key = self.block.allocate()?;
+                v.insert(key);
+                Ok(())
+            }
         }
-
-        let key = self.allocate_direct()?;
-        self.index.insert(name.clone(), key);
-        Ok(())
     }
 
     pub fn deallocate(&mut self, name: &Var) {
         if let Some(key) = self.index.remove(name) {
-            self.deallocate_direct(key);
+            self.block.deallocate(key);
         }
+    }
+
+    pub fn get_mut(&mut self, name: &Var) -> Option<&mut Int> {
+        let key = self.index.get(name).copied()?;
+        let location = self.block.get_mut(key)?;
+        Some(location)
     }
 
     pub fn get_ptr(&mut self, name: &Var) -> Option<*mut Int> {
-        let key = self.index.get(name).copied()?;
-        let location = self.memory.get_mut(key)?;
-        Some(location as *mut Int)
+        self.get_mut(name).map(|r| r as *mut Int)
     }
 
     pub fn clear(&mut self) {
-        self.memory.clear();
+        self.block.clear();
         self.index.clear();
-    }
-
-    fn direct_load(&self, key: Key) -> Option<Int> {
-        self.memory.get(key).copied()
-    }
-
-    fn direct_store(&mut self, key: Key, value: Int) {
-        let location = self.memory.get_mut(key).expect("Invalid varaible location");
-
-        *location = value;
-    }
-
-    fn allocate_direct(&mut self) -> Result<Key> {
-        if self.memory.len() >= self.size {
-            return Err(AllocationError::OutOfMemory);
-        }
-
-        Ok(self.memory.insert(0))
-    }
-
-    fn deallocate_direct(&mut self, key: Key) {
-        debug_assert!(self.memory.contains(key));
-        self.memory.remove(key);
     }
 }
 
@@ -127,6 +151,8 @@ impl Memory {
 pub struct ScopedMemory {
     globals: Memory,
     locals: Vec<AllocationIndex>,
+    // Current number of scopes. Might not be same as locals.len()
+    // because we cache allocations
     size: usize,
 }
 
@@ -150,14 +176,14 @@ impl ScopedMemory {
 
     pub fn load(&self, name: &Var) -> Option<Int> {
         match self.local_index(name) {
-            Some(key) => self.globals.direct_load(key),
+            Some(key) => self.globals.block.load(key),
             None => self.globals.load(name),
         }
     }
 
     pub fn store(&mut self, name: &Var, value: Int) {
         match self.local_index(name) {
-            Some(key) => self.globals.direct_store(key, value),
+            Some(key) => self.globals.block.store(key, value),
             None => self.globals.store(name, value),
         }
     }
@@ -171,7 +197,7 @@ impl ScopedMemory {
         } else {
             let locals = &mut self.locals[self.size];
             for (_name, key) in locals.iter() {
-                self.globals.deallocate_direct(*key);
+                self.globals.block.deallocate(*key);
             }
 
             locals.clear();
@@ -179,7 +205,7 @@ impl ScopedMemory {
 
         let index = &mut self.locals[self.size];
         for name in locals {
-            let key = self.globals.allocate_direct().unwrap();
+            let key = self.globals.block.allocate().unwrap();
             index.insert(name, key);
         }
 
@@ -187,6 +213,7 @@ impl ScopedMemory {
     }
 
     pub fn pop_scope(&mut self) {
+        // cache the AllocationIndex so that next push_scope won't allocate
         self.size -= 1;
     }
 
@@ -195,8 +222,8 @@ impl ScopedMemory {
         self.locals.clear();
     }
 
-    pub fn globals(&self) -> impl Iterator<Item = &Var> {
-        self.globals.globals()
+    pub fn globals(&self) -> &Memory {
+        &self.globals
     }
 
     pub fn globals_mut(&mut self) -> &mut Memory {

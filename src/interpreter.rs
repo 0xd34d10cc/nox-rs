@@ -72,7 +72,7 @@ impl Interpreter {
 
     fn compile(&self, program: syntax::Program) -> Result<statement::Program, CommandError> {
         let (warnings, p) =
-            statement::Program::with_globals(program, self.memory.globals().cloned())?;
+            statement::Program::with_globals(program, self.memory.globals().iter().cloned())?;
         if !warnings.is_empty() && self.warnings_enabled {
             for warning in warnings {
                 println!("Warning: {}", warning);

@@ -11,14 +11,10 @@ mod statement;
 mod syntax;
 mod types;
 
-use std::error::Error;
-
 use crate::interpreter::Interpreter;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
     if let Err(e) = Interpreter::new().run() {
         eprintln!("Failure: {}", e);
     }
-
-    Ok(())
 }

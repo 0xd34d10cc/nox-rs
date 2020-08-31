@@ -487,9 +487,14 @@ impl<'a> Compiler<'a> {
         let entrypoint = ops.offset();
         dynasm!(ops
             // stack alignment
-            ; push rsp
-            ; push QWORD [rsp]
-            ; and rsp, !0x10 + 1
+            ; push rsp              // save rsp value
+            ; push QWORD [rsp]      // save original rsp value again, preserve original stack alignment
+            ; and rsp, !0x10 + 1    // reset lower 4 bits (align by 16)
+                                    // if it was already 16 byte aligned nothing changes, original value is
+                                    // at [rsp + 0] and [rsp + 8], if it was 8 byte aligned then it
+                                    // subtracts 8 from rsp, meaning that the original rsp is now
+                                    // at [rsp + 8] and [rsp + 16]. So we can unconditionally restore it
+                                    // from [rsp + 8] in either case
             // save non-volatile registers
             // TODO: don't save registers that we're not going to use
             ; push rbx
@@ -521,7 +526,7 @@ impl<'a> Compiler<'a> {
             ; pop rsi
             ; pop rdi
             ; pop rbx
-            // restore previous rsp value
+            // restore original rsp value
             ; mov rsp, [rsp+8]
         );
 

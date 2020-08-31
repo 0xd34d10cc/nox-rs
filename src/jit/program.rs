@@ -52,6 +52,11 @@ impl Program<'_> {
             .collect()
     }
 
+    // Preconditions:
+    // 1. The program is memory safe
+    // 2. Entrypoint is offset in program buffer at which the main function is located
+    // 3. memory - the only memory block which could be modified by program
+    // 4. runtime - the runtime this program is linked to
     pub unsafe fn from_parts<'a>(
         program: ExecutableBuffer,
         entrypoint: AssemblyOffset,
