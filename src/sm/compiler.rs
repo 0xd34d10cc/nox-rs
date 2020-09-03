@@ -184,8 +184,6 @@ impl Compiler {
         program.functions.insert(
             name.clone(),
             Function {
-                args: args.clone(),
-                locals: locals.clone(),
                 returns_value: *returns_value,
                 entry: label,
             },

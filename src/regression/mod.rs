@@ -12,7 +12,9 @@ mod generated;
 
 use crate::io::{InputStream, OutputStream};
 use crate::memory::ScopedMemory;
-// use crate::jit::{self, Runtime};
+// TODO: enable JIT tests
+#[allow(unused)]
+use crate::jit::{self, Runtime};
 use crate::sm;
 use crate::statement;
 use crate::types::Int;
@@ -22,6 +24,7 @@ struct SharedInput {
     inner: Rc<RefCell<Vec<Int>>>,
 }
 
+// TODO: enable JIT tests
 #[allow(unused)]
 impl SharedInput {
     fn new(values: Vec<Int>) -> Self {
@@ -46,6 +49,7 @@ struct SharedOutput {
     inner: Rc<RefCell<Vec<Int>>>,
 }
 
+// TODO: enable JIT tests
 #[allow(unused)]
 impl SharedOutput {
     fn new(values: Vec<Int>) -> Self {

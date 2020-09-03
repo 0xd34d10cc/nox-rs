@@ -132,6 +132,7 @@ where
     pub fn run(&mut self, program: &Program) -> Result<()> {
         use crate::memory::AllocationError;
 
+        // allocate memory
         for global in program.globals() {
             match self.memory.globals_mut().allocate(global) {
                 Err(AllocationError::OutOfMemory) => {
@@ -141,9 +142,16 @@ where
             }
         }
 
+        // prepare the state
         let mut pc = 0;
-        while pc < program.instructions.len() {
-            match self.execute(&program.instructions[pc], &program.labels, pc)? {
+        let n_instructions = program.instructions().len();
+        let labels = program.labels();
+        let instructions = program.instructions();
+
+        // execute
+        while pc < n_instructions {
+            let instruction = &instructions[pc];
+            match self.execute(instruction, labels, pc)? {
                 Retcode::Continue => pc += 1,
                 Retcode::Jump(location) => pc = location,
                 Retcode::Return => return Ok(()),

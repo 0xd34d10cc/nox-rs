@@ -1,4 +1,5 @@
 use std::mem;
+use std::marker::PhantomData;
 
 use capstone::prelude::*;
 use dynasmrt::{AssemblyOffset, ExecutableBuffer};
@@ -11,11 +12,8 @@ pub struct Program<'a> {
     entrypoint: AssemblyOffset,
 
     // these fields are here only for memory safety gurantees
-    #[allow(unused)]
-    memory: &'a mut Memory,
-
-    #[allow(unused)]
-    runtime: &'a mut Runtime,
+    _memory: PhantomData<&'a mut Memory>,
+    _runtime: PhantomData<&'a mut Runtime>,
 }
 
 impl Program<'_> {
@@ -60,15 +58,15 @@ impl Program<'_> {
     pub unsafe fn from_parts<'a>(
         program: ExecutableBuffer,
         entrypoint: AssemblyOffset,
-        memory: &'a mut Memory,
-        runtime: &'a mut Runtime,
+        _memory: &'a mut Memory,
+        _runtime: &'a mut Runtime,
     ) -> Program<'a> {
         Program {
             program,
             entrypoint,
 
-            memory,
-            runtime,
+            _memory: PhantomData,
+            _runtime: PhantomData,
         }
     }
 }

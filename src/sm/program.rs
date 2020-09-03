@@ -26,18 +26,16 @@ pub enum Instruction {
     Ignore,
 }
 
-// TODO: use in JIT
-#[allow(unused)]
+#[derive(Debug)]
 pub struct Function {
-    pub(in crate::sm) args: Vec<Var>,
-    pub(in crate::sm) locals: Vec<Var>,
-    pub(in crate::sm) returns_value: bool,
-    pub(in crate::sm) entry: Label,
+    pub returns_value: bool,
+    pub entry: Label,
 }
 
+#[derive(Debug)]
 pub struct Program {
-    pub(in crate::sm) labels: Labels,
-    pub(in crate::sm) instructions: Vec<Instruction>,
+    labels: Labels,
+    instructions: Vec<Instruction>,
     pub(in crate::sm) functions: Functions,
     pub(in crate::sm) globals: Globals,
 }
@@ -52,8 +50,22 @@ impl Program {
         }
     }
 
-    pub fn instructions(&self) -> impl Iterator<Item = &Instruction> {
-        self.instructions.iter()
+    pub fn labels(&self) -> &Labels {
+        &self.labels
+    }
+
+    pub fn instructions(&self) -> &[Instruction] {
+        &self.instructions
+    }
+
+    pub fn globals(&self) -> &Globals {
+        &self.globals
+    }
+
+    // TODO: use in JIT
+    #[allow(unused)]
+    pub fn functions(&self) -> &Functions {
+        &self.functions
     }
 
     pub fn push(&mut self, instruction: Instruction) {
@@ -68,9 +80,5 @@ impl Program {
             debug_assert_eq!(self.labels.get(&label), None);
             self.labels.insert(label, self.instructions.len() - 1);
         }
-    }
-
-    pub fn globals(&self) -> impl Iterator<Item = &Var> {
-        self.globals.iter()
     }
 }

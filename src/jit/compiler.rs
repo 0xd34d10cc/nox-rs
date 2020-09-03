@@ -481,6 +481,7 @@ impl<'a> Compiler<'a> {
             }
         }
 
+        // NOTE: fails only in case when mmap syscall returns error
         let mut ops = Assembler::new().unwrap();
 
         // prologue
