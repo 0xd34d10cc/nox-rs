@@ -1,5 +1,5 @@
-use std::mem;
 use std::marker::PhantomData;
+use std::mem;
 
 use capstone::prelude::*;
 use dynasmrt::{AssemblyOffset, ExecutableBuffer};

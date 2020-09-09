@@ -1,7 +1,9 @@
 use crate::ops::{LogicOp, Op};
 use crate::types::{Int, Var};
 
-pub type Label = usize;
+// NOTE: the inner value here is _not_ an index
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct Label(pub usize);
 pub type Labels = fnv::FnvHashMap<Label, usize>; // Label -> instruction index
 pub type Functions = fnv::FnvHashMap<Var, Function>;
 pub type Globals = fnv::FnvHashSet<Var>;

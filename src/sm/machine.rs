@@ -2,7 +2,7 @@ use crate::io::{InputStream, OutputStream};
 use crate::memory::ScopedMemory;
 use crate::types::{Int, Result};
 
-use super::program::{Instruction, Label, Labels, Program};
+use super::program::{Instruction, Labels, Program};
 
 type Stack = Vec<Int>;
 
@@ -11,12 +11,15 @@ pub struct StackMachine<'a, I, O> {
     input: &'a mut I,
     output: &'a mut O,
     stack: Stack,
-    control_stack: Vec<Label /* return address */>,
+    control_stack: Vec<usize /* return address */>,
 }
 
 enum Retcode {
+    // Continue the execution
     Continue,
-    Jump(Label),
+    // Jump to instruction at index
+    Jump(usize),
+    // Return from function
     Return,
 }
 
@@ -51,7 +54,7 @@ where
         &mut self,
         instruction: &Instruction,
         labels: &Labels,
-        pc: Label,
+        pc: usize,
     ) -> Result<Retcode> {
         match instruction {
             Instruction::Label(_) => { /* ignore */ }

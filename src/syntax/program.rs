@@ -2,12 +2,13 @@ use nom::combinator::{map, opt};
 use nom::multi::{many0, separated_list};
 use nom::sequence::{delimited, preceded};
 
-use super::statement::Statement as PascalStatement;
+use super::pascal::PascalStatement;
 use super::{key, variable, Input, Parsed};
 use crate::ops::LogicOp;
 use crate::statement::Expr;
 use crate::types::Var;
 
+// Actual abstract syntax tree.
 #[derive(Debug, Clone)]
 pub enum Statement {
     Skip,
@@ -155,12 +156,12 @@ fn convert_into(statement: PascalStatement, program: &mut Vec<Statement>) {
     }
 }
 
-pub fn statements1(input: Input) -> Parsed<Vec<Statement>> {
-    map(super::statement::statements1, convert)(input)
+fn statements1(input: Input) -> Parsed<Vec<Statement>> {
+    map(super::pascal::statements1, convert)(input)
 }
 
 pub fn statements(input: Input) -> Parsed<Vec<Statement>> {
-    map(super::statement::statements, convert)(input)
+    map(super::pascal::statements, convert)(input)
 }
 
 // Program ::= (Statements | Definition)*

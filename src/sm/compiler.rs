@@ -13,7 +13,7 @@ pub struct Compiler {
 impl Compiler {
     pub fn new() -> Self {
         Compiler {
-            label: 0 as Label,
+            label: Label(0),
             labels: HashMap::new(),
         }
     }
@@ -42,7 +42,7 @@ impl Compiler {
 
     // generate local (unnamed) label
     fn gen_label(&mut self) -> Label {
-        self.label += 1;
+        self.label = Label(self.label.0 + 1);
         self.label
     }
 

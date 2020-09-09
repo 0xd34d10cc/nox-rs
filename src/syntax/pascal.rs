@@ -23,27 +23,28 @@ use super::{key, spaces, Input, Parsed};
 use crate::statement::Expr;
 use crate::types::Var;
 
+// Concrete syntax tree for pascal-like syntax
 #[derive(Debug, Clone)]
-pub enum Statement {
+pub enum PascalStatement {
     Skip,
     IfElse {
         condition: Expr,
-        if_true: Vec<Statement>,
-        elifs: Vec<(Expr, Vec<Statement>)>,
-        if_false: Vec<Statement>,
+        if_true: Vec<PascalStatement>,
+        elifs: Vec<(Expr, Vec<PascalStatement>)>,
+        if_false: Vec<PascalStatement>,
     },
     While {
         condition: Expr,
-        body: Vec<Statement>,
+        body: Vec<PascalStatement>,
     },
     For {
-        init: Box<Statement>,
+        init: Box<PascalStatement>,
         condition: Expr,
-        post_step: Box<Statement>,
-        body: Vec<Statement>,
+        post_step: Box<PascalStatement>,
+        body: Vec<PascalStatement>,
     },
     RepeatUntil {
-        body: Vec<Statement>,
+        body: Vec<PascalStatement>,
         condition: Expr,
     },
     Assign(Var, Expr),
@@ -56,15 +57,15 @@ pub enum Statement {
     Return(Option<Expr>),
 }
 
-pub fn statements1(input: Input) -> Parsed<Vec<Statement>> {
+pub fn statements1(input: Input) -> Parsed<Vec<PascalStatement>> {
     separated_nonempty_list(key(";"), statement)(input)
 }
 
-pub fn statements(input: Input) -> Parsed<Vec<Statement>> {
+pub fn statements(input: Input) -> Parsed<Vec<PascalStatement>> {
     separated_list(key(";"), statement)(input)
 }
 
-pub fn statement(input: Input) -> Parsed<Statement> {
+pub fn statement(input: Input) -> Parsed<PascalStatement> {
     preceded(
         spaces,
         alt((
@@ -82,24 +83,24 @@ pub fn statement(input: Input) -> Parsed<Statement> {
     )(input)
 }
 
-fn skip(input: Input) -> Parsed<Statement> {
-    map(tag("skip"), |_| Statement::Skip)(input)
+fn skip(input: Input) -> Parsed<PascalStatement> {
+    map(tag("skip"), |_| PascalStatement::Skip)(input)
 }
 
-fn while_(input: Input) -> Parsed<Statement> {
+fn while_(input: Input) -> Parsed<PascalStatement> {
     let (input, condition) = preceded(key("while"), expr)(input)?;
     let (input, body) = delimited(key("do"), statements, key("od"))(input)?;
-    Ok((input, Statement::While { condition, body }))
+    Ok((input, PascalStatement::While { condition, body }))
 }
 
-fn for_(input: Input) -> Parsed<Statement> {
+fn for_(input: Input) -> Parsed<PascalStatement> {
     let (input, init) = preceded(key("for"), statement)(input)?;
     let (input, condition) = preceded(key(","), expr)(input)?;
     let (input, post_step) = preceded(key(","), statement)(input)?;
     let (input, body) = delimited(key("do"), statements, key("od"))(input)?;
     Ok((
         input,
-        Statement::For {
+        PascalStatement::For {
             init: Box::new(init),
             condition,
             post_step: Box::new(post_step),
@@ -108,13 +109,13 @@ fn for_(input: Input) -> Parsed<Statement> {
     ))
 }
 
-fn repeat_until(input: Input) -> Parsed<Statement> {
+fn repeat_until(input: Input) -> Parsed<PascalStatement> {
     let (input, body) = preceded(key("repeat"), statements)(input)?;
     let (input, condition) = preceded(key("until"), expr)(input)?;
-    Ok((input, Statement::RepeatUntil { body, condition }))
+    Ok((input, PascalStatement::RepeatUntil { body, condition }))
 }
 
-fn if_else(input: Input) -> Parsed<Statement> {
+fn if_else(input: Input) -> Parsed<PascalStatement> {
     let (input, root_condition) = preceded(key("if"), expr)(input)?;
     let (input, if_true) = preceded(key("then"), statements)(input)?;
     let (input, elifs) = many0(elif)(input)?;
@@ -123,7 +124,7 @@ fn if_else(input: Input) -> Parsed<Statement> {
 
     Ok((
         input,
-        Statement::IfElse {
+        PascalStatement::IfElse {
             condition: root_condition,
             if_true,
             elifs,
@@ -132,41 +133,41 @@ fn if_else(input: Input) -> Parsed<Statement> {
     ))
 }
 
-fn elif(input: Input) -> Parsed<(Expr, Vec<Statement>)> {
+fn elif(input: Input) -> Parsed<(Expr, Vec<PascalStatement>)> {
     let (input, condition) = preceded(key("elif"), expr)(input)?;
     let (input, body) = preceded(key("then"), statements)(input)?;
     Ok((input, (condition, body)))
 }
 
-fn else_(input: Input) -> Parsed<Vec<Statement>> {
+fn else_(input: Input) -> Parsed<Vec<PascalStatement>> {
     preceded(key("else"), statements)(input)
 }
 
-fn return_(input: Input) -> Parsed<Statement> {
+fn return_(input: Input) -> Parsed<PascalStatement> {
     let (input, e) = preceded(key("return"), opt(expr))(input)?;
-    Ok((input, Statement::Return(e)))
+    Ok((input, PascalStatement::Return(e)))
 }
 
-fn assign(input: Input) -> Parsed<Statement> {
+fn assign(input: Input) -> Parsed<PascalStatement> {
     let (input, var) = variable(input)?;
     let (input, e) = preceded(key(":="), expr)(input)?;
-    Ok((input, Statement::Assign(var, e)))
+    Ok((input, PascalStatement::Assign(var, e)))
 }
 
-fn read(input: Input) -> Parsed<Statement> {
+fn read(input: Input) -> Parsed<PascalStatement> {
     let (input, _) = key("read")(input)?;
     let (input, var) = delimited(key("("), variable, key(")"))(input)?;
-    Ok((input, Statement::Read(var)))
+    Ok((input, PascalStatement::Read(var)))
 }
 
-fn write(input: Input) -> Parsed<Statement> {
+fn write(input: Input) -> Parsed<PascalStatement> {
     let (input, _) = key("write")(input)?;
     let (input, e) = delimited(key("("), expr, key(")"))(input)?;
-    Ok((input, Statement::Write(e)))
+    Ok((input, PascalStatement::Write(e)))
 }
 
-fn call(input: Input) -> Parsed<Statement> {
+fn call(input: Input) -> Parsed<PascalStatement> {
     let (input, name) = variable(input)?;
     let (input, args) = delimited(key("("), separated_list(key(","), expr), key(")"))(input)?;
-    Ok((input, Statement::Call { name, args }))
+    Ok((input, PascalStatement::Call { name, args }))
 }

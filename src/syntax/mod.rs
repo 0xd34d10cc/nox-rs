@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use thiserror::Error;
 
 mod expr;
+mod pascal;
 mod program;
-mod statement;
 mod types;
 
 pub type Input<'a> = &'a str;
@@ -12,7 +12,7 @@ pub type ParseError<'a> = nom::error::VerboseError<Input<'a>>;
 pub type Parsed<'a, O> = nom::IResult<Input<'a>, O, ParseError<'a>>;
 
 pub use self::expr::expr;
-pub use self::program::{program, statements, statements1, Function, Program, Statement};
+pub use self::program::{program, Function, Program, Statement};
 pub use self::types::{integer, variable};
 
 #[derive(Debug, Error)]
@@ -61,15 +61,16 @@ fn incomplete<T: Debug>(value: T, what: &'static str, rest: Input) -> Error {
     }
 }
 
+// Invoke the parser P, make sure it comsumes input compietely and convert the error (if any) to Error
 pub fn parse<P, T: Debug>(what: &'static str, parser: P, input: Input) -> Result<T>
 where
     P: Fn(Input) -> Parsed<T>,
 {
-    let (input, v) = parser(input).map_err(|e| err(e, what, input))?;
+    let (rest, value) = parser(input).map_err(|e| err(e, what, input))?;
 
     if !input.is_empty() {
-        return Err(incomplete(v, what, input));
+        return Err(incomplete(value, what, rest));
     }
 
-    Ok(v)
+    Ok(value)
 }
