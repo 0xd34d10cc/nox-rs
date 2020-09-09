@@ -68,7 +68,7 @@ where
 {
     let (rest, value) = parser(input).map_err(|e| err(e, what, input))?;
 
-    if !input.is_empty() {
+    if !rest.is_empty() {
         return Err(incomplete(value, what, rest));
     }
 
