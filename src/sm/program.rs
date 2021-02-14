@@ -23,6 +23,7 @@ pub enum Instruction {
     Load(Var),
     Store(Var),
     Call(Label),
+    // TODO: add indirection here, this enum variant makes sizeof(Instruction) too big
     Begin { args: Vec<Var>, locals: Vec<Var> },
     End,
     Ignore,

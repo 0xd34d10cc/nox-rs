@@ -151,7 +151,7 @@ impl Memory {
 pub struct ScopedMemory {
     globals: Memory,
     locals: Vec<AllocationIndex>,
-    // Current number of scopes. Might not be same as locals.len()
+    // Current number of scopes. Might be not same as locals.len()
     // because we cache allocations
     size: usize,
 }

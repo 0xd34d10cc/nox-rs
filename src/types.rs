@@ -5,6 +5,7 @@ use std::rc::Rc;
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub type Int = i64;
 
+// TODO: reduce size to 8 bytes (e.g. use string_cache crate)
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Var(Rc<str>);
 
